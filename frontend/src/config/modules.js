@@ -124,14 +124,12 @@ export const MODULES = [
         return gal > 0 ? +(km / gal).toFixed(2) : 0;
       }},
       { key: "Gasto peajes ($)", label: "Gasto Peajes ($)", type: "number" },
-      { key: "Gasto comidas ($)", label: "Gasto Comidas ($)", type: "number" },
       { key: "Otros Gastos ($)", label: "Otros Gastos ($)", type: "number" },
       { key: "Gasto Total ($)", label: "Gasto Total ($) (auto)", type: "number", derived: (d) => {
         const t = Number(d["Total Combustible ($)"] || 0);
         const p = Number(d["Gasto peajes ($)"] || 0);
-        const c = Number(d["Gasto comidas ($)"] || 0);
         const o = Number(d["Otros Gastos ($)"] || 0);
-        return +(t + p + c + o).toFixed(2);
+        return +(t + p + o).toFixed(2);
       }},
       { key: "Observaciones", label: "Observaciones", type: "textarea" },
     ],
