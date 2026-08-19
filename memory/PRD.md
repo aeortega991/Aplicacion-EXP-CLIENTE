@@ -24,8 +24,11 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Dashboard con KPIs + 4 gráficos (Feb 2026)
 - Gestión de usuarios (solo admin) (Feb 2026)
 - Autorización basada en rol: usuarios `user` no pueden editar/eliminar
-- **Módulo Rutas (Feb 2026)**: 1009 rutas sembradas; formulario con selects dinámicos (vehículo desde Flota, conductor desde Conductores) y **cálculo automático** de Km Recorridos, Galones, Rendimiento (Km/gal) y Gasto Total
-- **Dashboard extendido (Feb 2026)**: filtros de fecha (desde/hasta) + 2 KPIs nuevos (Galones, Rendimiento km/gal) + nuevo gráfico combo "Consumo de Combustible por Vehículo (Km/gal)"
+- **Módulo Rutas (Feb 2026)**: 1009 rutas sembradas; formulario con selects dinámicos y cálculo automático de Km/Galones/Rendimiento/Gasto
+- **Dashboard extendido (Feb 2026)**: filtros de fecha + KPIs Galones/Rendimiento + gráfico combo Km-vs-Km/gal
+- **Alertas de Vencimiento (Feb 2026)**: página `/alertas` con seguros, mantenimientos e impuestos vencidos/próximos; filtro por horizonte (7/15/30/60/90 días) y tipo
+- **Exportar a Excel (Feb 2026)**: botón en cada módulo descarga .xlsx con todos los registros vía `/api/modules/{module}/export`
+- **Mapa de Rutas (Feb 2026)**: página `/mapa` con OpenStreetMap + react-leaflet 5.x; 26 ciudades del Ecuador geocodificadas, círculos proporcionales a viajes, polilíneas entre ciudades con grosor por frecuencia, filtros de fecha
 
 ## Test Credentials
 - Admin: `aeortega` / `admin123`

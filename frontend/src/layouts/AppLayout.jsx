@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   Settings,
   Route,
+  Map,
+  BellRing,
   Users,
   LogOut,
 } from "lucide-react";
@@ -57,6 +59,14 @@ export default function AppLayout() {
           <NavLink to="/" end className={navClass} data-testid="nav-dashboard">
             <LayoutDashboard className="w-4 h-4" />
             <span>Dashboard</span>
+          </NavLink>
+          <NavLink to="/alertas" className={navClass} data-testid="nav-alertas">
+            <BellRing className="w-4 h-4" />
+            <span>Alertas</span>
+          </NavLink>
+          <NavLink to="/mapa" className={navClass} data-testid="nav-mapa">
+            <Map className="w-4 h-4" />
+            <span>Mapa de Rutas</span>
           </NavLink>
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">
             Módulos

@@ -6,6 +6,8 @@ import AppLayout from "@/layouts/AppLayout";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
+import AlertsPage from "@/pages/AlertsPage";
+import RutasMap from "@/pages/RutasMap";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -37,6 +39,8 @@ function App() {
             }
           >
             <Route index element={<Dashboard />} />
+            <Route path="alertas" element={<AlertsPage />} />
+            <Route path="mapa" element={<RutasMap />} />
             {MODULES.map((m) => (
               <Route key={m.key} path={m.key} element={<ModulePage moduleKey={m.key} />} />
             ))}

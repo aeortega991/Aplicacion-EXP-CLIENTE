@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Download } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtCell = (val, key) => {
@@ -174,6 +174,29 @@ export default function ModulePage({ moduleKey }) {
           </div>
           <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid={`${moduleKey}-add-button`}>
             <Plus className="w-4 h-4" /> Agregar
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            data-testid={`${moduleKey}-export-button`}
+            onClick={async () => {
+              try {
+                const res = await api.get(`/modules/${moduleKey}/export`, { responseType: "blob" });
+                const url = window.URL.createObjectURL(new Blob([res.data]));
+                const link = document.createElement("a");
+                link.href = url;
+                link.setAttribute("download", `${moduleKey}_${new Date().toISOString().slice(0,10)}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+                toast.success("Excel descargado");
+              } catch (e) {
+                toast.error("Error al exportar");
+              }
+            }}
+          >
+            <Download className="w-4 h-4" /> Excel
           </Button>
         </div>
       </div>

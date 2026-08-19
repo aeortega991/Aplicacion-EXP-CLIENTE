@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -402,7 +403,207 @@ async def dashboard(
         "consumo_por_vehiculo": sorted(consumo_por_vehiculo, key=lambda x: -x["km_recorridos"])[:20],
     }
 
-# ---- Seed ----
+# ---- Alerts / Export / Map ----
+CITY_COORDS = {
+    "AMBATO": [-1.2544, -78.6267],
+    "CUENCA": [-2.9006, -78.9962],
+    "GUAYAQUIL": [-2.1709, -79.9224],
+    "MACHALA": [-3.2581, -79.9553],
+    "LOJA": [-3.9931, -79.2042],
+    "MANTA": [-0.9677, -80.7089],
+    "QUEVEDO": [-1.0233, -79.4677],
+    "QUITO": [-0.1807, -78.4678],
+    "STO DOMINGO": [-0.2542, -79.1719],
+    "SANTO DOMINGO": [-0.2542, -79.1719],
+    "MILAGRO": [-2.1342, -79.5872],
+    "BUENA FE": [-0.8853, -79.4967],
+    "DAULE": [-1.8635, -79.9739],
+    "BABAHOYO": [-1.8016, -79.5346],
+    "DURAN": [-2.1717, -79.8300],
+    "LIBERTAD": [-2.2333, -80.9000],
+    "LA LIBERTAD": [-2.2333, -80.9000],
+    "TRIUNFO": [-2.3833, -79.4667],
+    "EL TRIUNFO": [-2.3833, -79.4667],
+    "LA MANA": [-0.9439, -79.2264],
+    "SALITRE": [-1.8500, -79.7833],
+    "SAMBORONDON": [-1.9614, -79.7239],
+    "RUTA DEL SOL": [-1.9500, -80.7500],
+    "VIA A DAULE": [-1.9500, -79.9739],
+    "VIA LA COSTA": [-2.1800, -80.2000],
+    "CDLAS NORTE": [-2.1200, -79.9000],
+    "GUASMO - CENTRO": [-2.2500, -79.8800],
+    "GUASMO": [-2.2500, -79.8800],
+    "DURAN - VIA SAMBORONDON": [-2.0500, -79.7800],
+    "SAMBORONDON-SALITRE": [-1.9000, -79.7500],
+}
+
+def _norm_city(name):
+    if not name: return None
+    return str(name).strip().upper()
+
+def _iso_date(v):
+    if not v: return None
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+@api.get("/alerts")
+async def get_alerts(dias: int = 30, user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    limit = now + timedelta(days=dias)
+    alerts = []
+
+    seguros = await db.seguros.find({}, {"_id": 0}).to_list(5000)
+    for s in seguros:
+        v = _iso_date(s.get("Fecha de Vencimiento"))
+        if not v: continue
+        v_naive = v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v
+        dias_restantes = (v_naive - now).days
+        if dias_restantes <= dias:
+            alerts.append({
+                "tipo": "Seguro",
+                "modulo": "seguros",
+                "placa": s.get("Placa Vehiculo"),
+                "descripcion": f"Póliza {s.get('Aseguradora') or s.get('Poliza seguro') or ''}".strip(),
+                "fecha_vencimiento": v.date().isoformat(),
+                "dias_restantes": dias_restantes,
+                "severity": "vencido" if dias_restantes < 0 else ("critico" if dias_restantes <= 7 else "advertencia"),
+            })
+
+    flota = await db.flota.find({}, {"_id": 0}).to_list(5000)
+    for f in flota:
+        estado = str(f.get("Estado Mantenimiento Preventivo") or "").lower()
+        falta = _num(f.get("Falta para el próximo Mnnto Prev. (Km)"))
+        if estado == "ingresar a taller" or falta < 0:
+            alerts.append({
+                "tipo": "Mantenimiento",
+                "modulo": "flota",
+                "placa": f.get("Placa Vehiculo"),
+                "descripcion": f"Mnto preventivo vencido — {f.get('Marca','')} {f.get('Modelo','')}".strip(),
+                "fecha_vencimiento": None,
+                "dias_restantes": None,
+                "severity": "critico",
+                "km_atraso": abs(int(falta)) if falta < 0 else 0,
+            })
+        elif 0 <= falta <= 500:
+            alerts.append({
+                "tipo": "Mantenimiento",
+                "modulo": "flota",
+                "placa": f.get("Placa Vehiculo"),
+                "descripcion": f"Mnto próximo — faltan {int(falta)} Km",
+                "fecha_vencimiento": None,
+                "dias_restantes": None,
+                "severity": "advertencia",
+                "km_restantes": int(falta),
+            })
+
+    impuestos = await db.impuestos.find({}, {"_id": 0}).to_list(5000)
+    for i in impuestos:
+        if not i.get("Fecha de pago"):
+            alerts.append({
+                "tipo": "Impuesto",
+                "modulo": "impuestos",
+                "placa": i.get("Placa Vehiculo"),
+                "descripcion": f"{i.get('Tipo Impuesto','')} {i.get('Año Impuesto','')} sin pago",
+                "fecha_vencimiento": None,
+                "dias_restantes": None,
+                "severity": "critico",
+            })
+
+    # Sort: severity (vencido > critico > advertencia), then by dias_restantes asc
+    order = {"vencido": 0, "critico": 1, "advertencia": 2}
+    alerts.sort(key=lambda a: (order.get(a["severity"], 3), a.get("dias_restantes") if a.get("dias_restantes") is not None else 999))
+
+    return {
+        "total": len(alerts),
+        "por_tipo": {
+            "seguros": sum(1 for a in alerts if a["tipo"] == "Seguro"),
+            "mantenimiento": sum(1 for a in alerts if a["tipo"] == "Mantenimiento"),
+            "impuestos": sum(1 for a in alerts if a["tipo"] == "Impuesto"),
+        },
+        "alertas": alerts,
+    }
+
+@api.get("/modules/{module}/export")
+async def export_module(module: str, user: dict = Depends(get_current_user)):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    col = _validate_module(module)
+    docs = await db[col].find({}, {"_id": 0}).to_list(50000)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = module.capitalize()
+    if not docs:
+        ws.append(["Sin datos"])
+    else:
+        # Collect headers, put 'id' first
+        headers = list(dict.fromkeys(k for d in docs for k in d.keys() if not k.startswith("_")))
+        if "id" in headers:
+            headers.remove("id")
+            headers = ["id"] + headers
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="D92D20")
+        for d in docs:
+            ws.append([d.get(h) if not isinstance(d.get(h), (list, dict)) else str(d.get(h)) for h in headers])
+        for i, h in enumerate(headers, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(12, min(40, len(str(h)) + 4))
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"{module}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@api.get("/rutas/map")
+async def rutas_map(desde: Optional[str] = None, hasta: Optional[str] = None, user: dict = Depends(get_current_user)):
+    rutas = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    d_from = _parse_dt(desde) if desde else None
+    d_to = _parse_dt(hasta) if hasta else None
+
+    ciudades: Dict[str, Dict[str, Any]] = {}
+    rutas_agg: Dict[tuple, int] = {}
+    unknown = set()
+
+    for r in rutas:
+        fecha = _parse_dt(r.get("Fecha de Salida"))
+        if d_from and fecha and fecha < d_from: continue
+        if d_to and fecha and fecha > d_to: continue
+        origen = _norm_city(r.get("Origen"))
+        destino = _norm_city(r.get("Destino"))
+        if not origen or not destino: continue
+        for c in (origen, destino):
+            if c in CITY_COORDS:
+                if c not in ciudades:
+                    ciudades[c] = {"nombre": c, "lat": CITY_COORDS[c][0], "lng": CITY_COORDS[c][1], "viajes": 0}
+                ciudades[c]["viajes"] += 1
+            else:
+                unknown.add(c)
+        if origen in CITY_COORDS and destino in CITY_COORDS and origen != destino:
+            key = tuple(sorted([origen, destino]))
+            rutas_agg[key] = rutas_agg.get(key, 0) + 1
+
+    rutas_list = [
+        {
+            "origen": a,
+            "destino": b,
+            "viajes": count,
+            "coords": [CITY_COORDS[a], CITY_COORDS[b]],
+        }
+        for (a, b), count in sorted(rutas_agg.items(), key=lambda x: -x[1])
+    ]
+
+    return {
+        "ciudades": sorted(ciudades.values(), key=lambda c: -c["viajes"]),
+        "rutas": rutas_list,
+        "no_mapeadas": sorted(list(unknown)),
+    }
 async def seed_admin_and_data():
     # Admin user
     admin_username = os.environ.get("ADMIN_USERNAME", "aeortega").lower()
