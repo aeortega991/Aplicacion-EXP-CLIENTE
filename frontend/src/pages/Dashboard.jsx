@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import api, { money, numberFmt } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import CityFilter from "@/components/CityFilter";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +10,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line, ComposedChart,
 } from "recharts";
-import { Truck, DollarSign, Users, Gauge, Wrench, AlertTriangle, Fuel, Calendar } from "lucide-react";
+import { Truck, DollarSign, Users, Gauge, Wrench, AlertTriangle, Fuel, Calendar, MapPin } from "lucide-react";
 
 const COLORS = ["#D92D20", "#2563EB", "#10B981", "#F59E0B", "#7C3AED", "#EC4899", "#0EA5E9", "#84CC16"];
 
@@ -28,23 +30,32 @@ const KPI = ({ icon: Icon, label, value, sub, testId }) => (
 );
 
 export default function Dashboard() {
+  const { isAdmin, user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  const [cityFilter, setCityFilter] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("fleet_city_filter") || "[]"); } catch { return []; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("fleet_city_filter", JSON.stringify(cityFilter));
+  }, [cityFilter]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     const params = {};
     if (desde) params.desde = desde;
     if (hasta) params.hasta = hasta;
+    if (isAdmin && cityFilter.length > 0) params.ciudades = cityFilter.join(",");
     try {
       const { data } = await api.get("/dashboard", { params });
       setData(data);
     } finally {
       setLoading(false);
     }
-  }, [desde, hasta]);
+  }, [desde, hasta, cityFilter, isAdmin]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -63,21 +74,31 @@ export default function Dashboard() {
         <div>
           <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Panel de Control</div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-neutral-500 mt-1">Indicadores operativos y financieros de la flota.</p>
+          <p className="text-sm text-neutral-500 mt-1">
+            Indicadores operativos y financieros de la flota.
+            {!isAdmin && user?.ciudad && <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-50 text-blue-800 rounded"><MapPin className="w-3 h-3" /> {user.ciudad}</span>}
+          </p>
         </div>
-        <div className="flex items-end gap-2 bg-white border border-neutral-200 rounded-md p-3">
-          <Calendar className="w-4 h-4 text-neutral-500 mb-2" />
-          <div className="space-y-1">
-            <Label className="text-xs">Desde</Label>
-            <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" data-testid="filter-desde" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Hasta</Label>
-            <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" data-testid="filter-hasta" />
-          </div>
-          {(desde || hasta) && (
-            <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="filter-clear">Limpiar</Button>
+        <div className="flex items-end gap-3 flex-wrap">
+          {isAdmin && (
+            <div className="flex items-end pb-1">
+              <CityFilter selected={cityFilter} onChange={setCityFilter} testId="dashboard-city-filter" />
+            </div>
           )}
+          <div className="flex items-end gap-2 bg-white border border-neutral-200 rounded-md p-3">
+            <Calendar className="w-4 h-4 text-neutral-500 mb-2" />
+            <div className="space-y-1">
+              <Label className="text-xs">Desde</Label>
+              <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" data-testid="filter-desde" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Hasta</Label>
+              <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" data-testid="filter-hasta" />
+            </div>
+            {(desde || hasta) && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="filter-clear">Limpiar</Button>
+            )}
+          </div>
         </div>
       </div>
 

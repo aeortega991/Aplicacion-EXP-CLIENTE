@@ -324,13 +324,23 @@ def _parse_dt(s):
 async def dashboard(
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
+    ciudades: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    flota = await db.flota.find({}, {"_id": 0}).to_list(5000)
-    seguros = await db.seguros.find({}, {"_id": 0}).to_list(5000)
-    impuestos = await db.impuestos.find({}, {"_id": 0}).to_list(5000)
-    multas = await db.multas.find({}, {"_id": 0}).to_list(5000)
-    mantenimiento = await db.mantenimiento.find({}, {"_id": 0}).to_list(5000)
+    flota_all = await db.flota.find({}, {"_id": 0}).to_list(5000)
+    seguros_all = await db.seguros.find({}, {"_id": 0}).to_list(5000)
+    impuestos_all = await db.impuestos.find({}, {"_id": 0}).to_list(5000)
+    multas_all = await db.multas.find({}, {"_id": 0}).to_list(5000)
+    mantenimiento_all = await db.mantenimiento.find({}, {"_id": 0}).to_list(5000)
+
+    # Resolve city set (uses user's ciudad if role=user, else the query param for admin)
+    cities = await _resolve_cities("flota", user, ciudades)
+
+    flota = await _filter_by_cities("flota", flota_all, cities)
+    seguros = await _filter_by_cities("seguros", seguros_all, cities)
+    impuestos = await _filter_by_cities("impuestos", impuestos_all, cities)
+    multas = await _filter_by_cities("multas", multas_all, cities)
+    mantenimiento = await _filter_by_cities("mantenimiento", mantenimiento_all, cities)
 
     # placa -> ubicacion & data
     placa_to_ciudad = {v.get("Placa Vehiculo"): v.get("Ubicacion") or "Sin ciudad" for v in flota if v.get("Placa Vehiculo")}
@@ -384,7 +394,8 @@ async def dashboard(
         total_gasto_mantenimiento += _num(r.get("Costo Total ($)"))
 
     # Consumo combustible desde Rutas (con filtro de fecha)
-    rutas = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    rutas = await _filter_by_cities("rutas", rutas_all, cities)
     d_from = _parse_dt(desde) if desde else None
     d_to = _parse_dt(hasta) if hasta else None
     combustible_por_vehiculo: Dict[str, Dict[str, float]] = {}
@@ -454,6 +465,7 @@ async def dashboard(
             "gasto_mantenimiento": round(total_gasto_mantenimiento, 2),
             "total_galones": round(total_galones, 2),
             "km_por_galon_prom": round(km_gal_prom, 2),
+            "ciudades_activas": sorted(list(cities)) if cities else None,
         },
         "consumo_combustible": consumo_combustible,
         "gasto_por_vehiculo": [
