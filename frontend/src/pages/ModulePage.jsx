@@ -22,6 +22,9 @@ import { toast } from "sonner";
 
 const fmtCell = (val, key) => {
   if (val === null || val === undefined || val === "") return "—";
+  if (typeof val === "string" && /^https?:\/\//i.test(val)) {
+    return <a href={val} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">Ver enlace</a>;
+  }
   if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val)) {
     try { return new Date(val).toLocaleDateString("es-EC"); } catch { return val; }
   }
@@ -308,11 +311,12 @@ export default function ModulePage({ moduleKey }) {
                   ) : (
                     <Input
                       id={f.key}
-                      type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
+                      type={f.type === "date" ? "date" : f.type === "number" ? "number" : f.type === "url" ? "url" : "text"}
                       value={formData[f.key] ?? ""}
                       onChange={(e) => setFormData((s) => ({ ...s, [f.key]: e.target.value }))}
                       required={f.required}
                       step={f.type === "number" ? "any" : undefined}
+                      placeholder={f.type === "url" ? "https://..." : undefined}
                       data-testid={`${moduleKey}-field-${f.key}`}
                     />
                   )}
