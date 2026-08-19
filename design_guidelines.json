@@ -1,0 +1,138 @@
+{
+  "theme_archetype": "Swiss & High-Contrast (Archetype 4) merged with The Performance Pro",
+  "theme_vibe": "Authority, Clarity, Truth, Objective, Functional, High-Density",
+  "app_context": "Enterprise ERP-lite for Fleet Management (Control de Flota Vehicular)",
+  "language": "es-419 (Latin American Spanish)",
+  "currency": "USD",
+  "typography": {
+    "fonts": {
+      "headings": "Cabinet Grotesk",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono (for data/numbers)"
+    },
+    "scale": {
+      "h1": "text-3xl sm:text-4xl tracking-tight font-bold",
+      "h2": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h3": "text-lg sm:text-xl font-medium",
+      "body": "text-sm",
+      "small": "text-xs tracking-wide",
+      "metrics": "text-3xl sm:text-4xl font-mono tracking-tight"
+    },
+    "rules": [
+      "No generic 'Inter' for headings. Cabinet Grotesk provides a distinct corporate authority.",
+      "Use IBM Plex Sans for tables and dense data grids.",
+      "Numbers in tables and dashboard widgets MUST use tabular-nums or JetBrains Mono to align properly."
+    ]
+  },
+  "colors": {
+    "strategy": "Functional only. 95% of UI should be monochrome. Color guides action.",
+    "light_mode": {
+      "background": "#F8F9FA",
+      "surface": "#FFFFFF",
+      "text_primary": "#111827",
+      "text_secondary": "#4B5563",
+      "border": "#E5E7EB",
+      "primary_brand": "#D92D20",
+      "primary_hover": "#B91C1C",
+      "interactive": "#2563EB"
+    },
+    "dark_mode": {
+      "background": "#0A0A0A",
+      "surface": "#171717",
+      "text_primary": "#F9FAFB",
+      "text_secondary": "#9CA3AF",
+      "border": "#262626",
+      "primary_brand": "#EF4444",
+      "primary_hover": "#DC2626",
+      "interactive": "#3B82F6"
+    },
+    "chart_palette": [
+      "hsl(220, 70%, 50%)",
+      "hsl(160, 60%, 45%)",
+      "hsl(30, 80%, 55%)",
+      "hsl(280, 65%, 60%)",
+      "hsl(340, 75%, 55%)"
+    ],
+    "forbidden_colors": ["#1B93A4", "teal green", "teal blue"]
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders (The Technical Look). Expose the skeleton for data-heavy sections. Flat solid surfaces, 1px subtle borders, max 8px (md) border-radius. No massive shadows, just a 1px solid stroke for depth.",
+    "glassmorphism": "Avoid in data grids to prevent optical refraction of data. Use only for sticky top navs or floating action modals.",
+    "empty_states": "Do not leave blank screens. Use structured empty state components with a subtle icon and clear Call to Action (CTA) like 'Agregar Vehículo'."
+  },
+  "grids": {
+    "dashboard_mode": "High Density Grid (MODE B). grid-cols-1 md:grid-cols-3 lg:grid-cols-4. gap-4 or gap-6. Every pixel must be utilized. Use h-full to match neighboring heights.",
+    "table_layout": "Full width containers (w-full). Avoid horizontal scrolling if possible by using collapsible rows for extra data, or keep columns concise."
+  },
+  "layouts": {
+    "navigation": "Collapsible Left-Sidebar (Sidebar Navigation) for the 8 modules. Do NOT use a horizontal top-bar for primary navigation as the app has many modules. Include user profile/role indicator and logout at the bottom of the sidebar.",
+    "page_header": "Sticky header inside the main content area with Page Title, Global Search, and Date/Currency context.",
+    "content_spacing": "Dense but readable. Table cells use p-2 or p-3. Dashboard widgets use p-4 or p-6."
+  },
+  "modules_schema": [
+    {"name": "Dashboard", "icon": "ChartLineUp", "features": "Gasto total por vehículo (Bar chart), Gasto por ciudad (Donut chart), Multas por conductor (Horizontal Bar), Consumo total y promedio km/gal (Line/Area chart)."},
+    {"name": "Flota (Vehículos)", "icon": "Truck", "features": "CRUD table for vehicles (Marca, Modelo, Año, Placa, Estado)."},
+    {"name": "Seguros", "icon": "ShieldCheck", "features": "CRUD table (Póliza, Proveedor, Vencimiento, Costo)."},
+    {"name": "Impuestos", "icon": "FileText", "features": "CRUD table (Tipo, Vehículo, Fecha Pago, Monto)."},
+    {"name": "Talleres", "icon": "Wrench", "features": "CRUD table (Nombre, Especialidad, Ciudad, Contacto)."},
+    {"name": "Conductores", "icon": "SteeringWheel", "features": "CRUD table (Nombre, Licencia, Vencimiento, Asignación)."},
+    {"name": "Multas", "icon": "WarningCircle", "features": "CRUD table (Conductor, Vehículo, Fecha, Motivo, Costo)."},
+    {"name": "Mantenimiento", "icon": "Gear", "features": "CRUD table (Vehículo, Taller, Fecha, Tipo de Mantenimiento, Costo)."}
+  ],
+  "role_handling": {
+    "Admin": "Has full access to Add, Edit, Delete (CRUD) actions on all tables. Can manage users.",
+    "User": "Has read access to tables and 'Insert-only' (Add) capabilities. Edit and Delete buttons should be hidden or disabled."
+  },
+  "components_rules": {
+    "tables": "Shadcn UI Tables. Implement sticky headers. Implement local search and column filters. Use pagination.",
+    "forms": "Shadcn UI Forms with React Hook Form. Use Shadcn Input, Select, Checkbox, Calendar (Datepicker). NO native HTML inputs.",
+    "modals": "Use Shadcn Dialog for Add/Edit forms to keep context without navigating away.",
+    "charts": "Shadcn UI Charts (Recharts). Ensure clear tooltips mapping to USD and es-419 locales (e.g., $1,000.00).",
+    "buttons": "Rectangular or slightly rounded (rounded-md). High contrast focus states."
+  },
+  "motion": {
+    "strategy": "Minimalist. Data tools should feel instantly responsive.",
+    "interactions": "Hover states on table rows (bg-muted/50), subtle translation on buttons. No heavy page transitions."
+  },
+  "accessibility": {
+    "contrast": "APCA standard. Ensure dark text on light backgrounds and vice-versa.",
+    "focus": "All interactive elements MUST have visible focus rings (focus:ring-2 focus:ring-primary focus:ring-offset-2).",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute (e.g., data-testid='sidebar-flota-link', data-testid='add-vehicle-button')."
+  },
+  "media": {
+    "icons_library": "@phosphor-icons/react (Weight: Regular or Duotone). Perfect for dense enterprise dashboards.",
+    "image_urls": [
+      {
+        "category": "login_background",
+        "url": "https://images.pexels.com/photos/36228061/pexels-photo-36228061.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Rear view of a large tanker truck transporting fuel on a highway. Excellent for the login screen split layout."
+      },
+      {
+        "category": "empty_state_fleet",
+        "url": "https://images.unsplash.com/photo-1766785368863-f2188a8c8b32?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwxfHxsb2dpc3RpY3MlMjB0cnVjayUyMGhpZ2h3YXl8ZW58MHx8fHwxNzg3MTQ2MjY3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Two semi-trucks driving on a highway. Use as a subtle, low-opacity image in empty states or onboarding."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install missing dependencies: yarn add @phosphor-icons/react recharts clsx tailwind-merge date-fns",
+    "Configure Tailwind spacing to be dense for tables (e.g. p-2) but breathable for layout (gap-6).",
+    "Ensure the application layout maps to a robust Sidebar + Main Content view.",
+    "Create a mock Auth flow showing 'Admin' vs 'User' views. Mock the data accurately reflecting a Latin American context (e.g., cities like Bogotá, CDMX, Lima, Buenos Aires).",
+    "Format all monetary values to USD using Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).",
+    "Data table must include an active search/filter bar at the top right of the table.",
+    "All components MUST be created using .js (JavaScript), not .tsx."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Do not use dark colors as gradients.",
+    "Don't make generic centered layouts. Ensure left alignment for tables and forms.",
+    "Create depth through layered design elements with z-index hierarchy, but keep surfaces flat (Neo-brutalism/Technical look).",
+    "You MUST NOT apply universal transition (e.g. transition: all). Add transitions to specific properties.",
+    "You MUST NOT center align the app container (.App { text-align: center; } is strictly forbidden).",
+    "NEVER use AI assistant Emoji characters (🤖🧠💭💡) for icons. Use Phosphor Icons.",
+    "Prioritize using Shadcn UI components. For forms, strictly use Shadcn components over raw HTML.",
+    "Use 'sonner' for toasts in /app/frontend/src/components/ui/sonner.js",
+    "Ensure you add data-testid to every button, input, and critical UI element for testing."
+  ]
+}

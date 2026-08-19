@@ -1,0 +1,24 @@
+{
+  "summary": "First-finish smoke test of Fleet Control app (backend + frontend). All critical backend endpoints and frontend flows work correctly for both admin and user roles.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login: admin (aeortega/admin123) returns role=admin; operador returns role=user; invalid credentials return 401",
+    "GET /api/auth/me: returns user with valid Bearer token; 401 without token",
+    "GET /api/modules/flota returns 78 seeded records; seguros/impuestos/talleres/conductores/multas/mantenimiento all return 200",
+    "POST /api/modules/flota with role=user creates record with UUID id (user can create)",
+    "PUT /api/modules/flota/{id} with role=user returns 403; DELETE returns 403; DELETE with admin returns 200",
+    "GET /api/dashboard returns kpis (all 6 required keys) plus gasto_por_vehiculo, gasto_por_ciudad, multas_por_conductor, consumo_por_vehiculo arrays",
+    "GET /api/users: 403 for user, 200 for admin; POST /api/users with duplicate username returns 400",
+    "Frontend admin login redirects to dashboard (/) with all 6 KPIs and 4 charts visible",
+    "Admin sidebar shows all 8 nav links (Dashboard, Flota, Seguros, Impuestos, Talleres, Conductores, Multas, Mantenimiento, Usuarios)",
+    "Admin flota page shows 78 rows with edit + delete buttons on each row; add-button opens flota-form-dialog",
+    "User (operador) does not see nav-usuarios link; user does not see edit/delete buttons on flota rows",
+    "Logout redirects to /login"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Dashboard route is '/' not '/dashboard' — the login page redirects to root which renders Dashboard. Edit/delete testids are 'flota-edit-btn' / 'flota-delete-btn' (repeated per row, not suffixed with id). Only Flota module tested in depth on the frontend; other module pages accessible via sidebar but not exhaustively CRUD-tested."
+}
