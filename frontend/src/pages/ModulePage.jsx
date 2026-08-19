@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getModule } from "@/config/modules";
 import api, { formatApiError, money } from "@/lib/api";
+import CityFilter from "@/components/CityFilter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Download, ArrowUpDown, ArrowUp, ArrowDown, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtCell = (val, key) => {
@@ -44,7 +45,7 @@ const statusColor = (val) => {
 
 export default function ModulePage({ moduleKey }) {
   const mod = getModule(moduleKey);
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -52,14 +53,25 @@ export default function ModulePage({ moduleKey }) {
   const [editing, setEditing] = useState(null);
   const [formData, setFormData] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [dynamicOptions, setDynamicOptions] = useState({}); // sourceName -> [values]
+  const [dynamicOptions, setDynamicOptions] = useState({});
   const [sortBy, setSortBy] = useState(null);
-  const [sortDir, setSortDir] = useState("asc"); // 'asc' | 'desc'
+  const [sortDir, setSortDir] = useState("asc");
+  const [cityFilter, setCityFilter] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("fleet_city_filter") || "[]"); } catch { return []; }
+  });
+
+  const supportsCityFilter = !["talleres", "conductores"].includes(moduleKey);
+
+  useEffect(() => {
+    localStorage.setItem("fleet_city_filter", JSON.stringify(cityFilter));
+  }, [cityFilter]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/modules/${moduleKey}`);
+      const params = {};
+      if (isAdmin && supportsCityFilter && cityFilter.length > 0) params.ciudades = cityFilter.join(",");
+      const { data } = await api.get(`/modules/${moduleKey}`, { params });
       setRecords(data);
     } catch (e) {
       toast.error(formatApiError(e));
@@ -68,7 +80,7 @@ export default function ModulePage({ moduleKey }) {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [moduleKey]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [moduleKey, cityFilter, isAdmin]);
 
   // Load dynamic options for select fields
   useEffect(() => {
@@ -208,9 +220,13 @@ export default function ModulePage({ moduleKey }) {
           <h1 className="text-3xl font-bold tracking-tight">{mod.label}</h1>
           <p className="text-sm text-neutral-500 mt-1">
             {records.length} {records.length === 1 ? "registro" : "registros"} en el sistema
+            {!isAdmin && user?.ciudad && <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-50 text-blue-800 rounded"><MapPin className="w-3 h-3" /> {user.ciudad}</span>}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {isAdmin && supportsCityFilter && (
+            <CityFilter selected={cityFilter} onChange={setCityFilter} testId={`${moduleKey}-city-filter`} />
+          )}
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <Input placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 w-64" data-testid={`${moduleKey}-search-input`} />

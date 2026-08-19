@@ -5,24 +5,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, User as UserIcon } from "lucide-react";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-const empty = { username: "", name: "", email: "", role: "user", password: "" };
+const empty = { username: "", name: "", email: "", role: "user", ciudad: "", password: "" };
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
+  const [cities, setCities] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -32,11 +26,12 @@ export default function UsersPage() {
     try {
       const { data } = await api.get("/users");
       setUsers(data);
-    } catch (e) {
-      toast.error(formatApiError(e));
-    }
+    } catch (e) { toast.error(formatApiError(e)); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.get("/cities").then((r) => setCities(r.data.cities || [])).catch(() => setCities([]));
+  }, []);
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
   const openEdit = (u) => { setEditing(u); setForm({ ...empty, ...u, password: "" }); setOpen(true); };
@@ -45,19 +40,17 @@ export default function UsersPage() {
     e.preventDefault();
     try {
       if (editing) {
-        const payload = { name: form.name, email: form.email, role: form.role };
+        const payload = { name: form.name, email: form.email, role: form.role, ciudad: form.ciudad || null };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editing.id}`, payload);
         toast.success("Usuario actualizado");
       } else {
-        await api.post("/users", form);
+        await api.post("/users", { ...form, ciudad: form.ciudad || null });
         toast.success("Usuario creado");
       }
       setOpen(false);
       load();
-    } catch (e) {
-      toast.error(formatApiError(e));
-    }
+    } catch (e) { toast.error(formatApiError(e)); }
   };
 
   const doDelete = async () => {
@@ -66,9 +59,7 @@ export default function UsersPage() {
       toast.success("Usuario eliminado");
       setConfirmDel(null);
       load();
-    } catch (e) {
-      toast.error(formatApiError(e));
-    }
+    } catch (e) { toast.error(formatApiError(e)); }
   };
 
   return (
@@ -91,6 +82,7 @@ export default function UsersPage() {
               <TableHead className="text-xs uppercase tracking-wider">Usuario</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Nombre</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Email</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">Ciudad</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Rol</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wider">Acciones</TableHead>
             </TableRow>
@@ -101,18 +93,15 @@ export default function UsersPage() {
                 <TableCell className="font-mono text-sm">@{u.username}</TableCell>
                 <TableCell className="font-medium">{u.name}</TableCell>
                 <TableCell className="text-neutral-600 text-sm">{u.email || "—"}</TableCell>
+                <TableCell>{u.ciudad ? <Badge variant="secondary">{u.ciudad}</Badge> : <span className="text-neutral-400 text-sm">Todas</span>}</TableCell>
                 <TableCell>
                   <Badge className={u.role === "admin" ? "bg-red-600 text-white" : "bg-neutral-200 text-neutral-800"}>
                     {u.role}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(u)} data-testid="user-edit-btn">
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setConfirmDel(u)} data-testid="user-delete-btn">
-                    <Trash2 className="w-4 h-4 text-red-600" />
-                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(u)} data-testid="user-edit-btn"><Pencil className="w-4 h-4" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDel(u)} data-testid="user-delete-btn"><Trash2 className="w-4 h-4 text-red-600" /></Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -124,56 +113,46 @@ export default function UsersPage() {
         <DialogContent className="max-w-lg" data-testid="user-form-dialog">
           <DialogHeader>
             <DialogTitle>{editing ? "Editar" : "Nuevo"} usuario</DialogTitle>
-            <DialogDescription>Configura los datos y el rol del usuario.</DialogDescription>
+            <DialogDescription>Configura los datos, rol y ciudad del usuario.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
               <Label>Usuario</Label>
-              <Input
-                value={form.username}
-                onChange={(e) => setForm((s) => ({ ...s, username: e.target.value }))}
-                disabled={!!editing}
-                required
-                data-testid="user-username-input"
-              />
+              <Input value={form.username} onChange={(e) => setForm((s) => ({ ...s, username: e.target.value }))} disabled={!!editing} required data-testid="user-username-input" />
             </div>
             <div className="space-y-2">
               <Label>Nombre completo</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))}
-                required
-                data-testid="user-name-input"
-              />
+              <Input value={form.name} onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))} required data-testid="user-name-input" />
             </div>
             <div className="space-y-2">
               <Label>Email (opcional)</Label>
-              <Input
-                type="email"
-                value={form.email || ""}
-                onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
-                data-testid="user-email-input"
-              />
+              <Input type="email" value={form.email || ""} onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))} data-testid="user-email-input" />
             </div>
-            <div className="space-y-2">
-              <Label>Rol</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((s) => ({ ...s, role: v }))}>
-                <SelectTrigger data-testid="user-role-select"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                  <SelectItem value="user">Usuario</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Rol</Label>
+                <Select value={form.role} onValueChange={(v) => setForm((s) => ({ ...s, role: v }))}>
+                  <SelectTrigger data-testid="user-role-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                    <SelectItem value="user">Usuario</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Ciudad {form.role === "admin" ? <span className="text-xs text-neutral-400">(opcional)</span> : null}</Label>
+                <Select value={form.ciudad || "__all__"} onValueChange={(v) => setForm((s) => ({ ...s, ciudad: v === "__all__" ? "" : v }))}>
+                  <SelectTrigger data-testid="user-ciudad-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="__all__">— Sin restricción —</SelectItem>
+                    {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>{editing ? "Nueva contraseña (dejar vacío para no cambiar)" : "Contraseña"}</Label>
-              <Input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm((s) => ({ ...s, password: e.target.value }))}
-                required={!editing}
-                data-testid="user-password-input"
-              />
+              <Input type="password" value={form.password} onChange={(e) => setForm((s) => ({ ...s, password: e.target.value }))} required={!editing} data-testid="user-password-input" />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>

@@ -95,12 +95,14 @@ class UserCreate(BaseModel):
     name: str
     email: Optional[str] = None
     role: str = "user"  # 'admin' or 'user'
+    ciudad: Optional[str] = None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
+    ciudad: Optional[str] = None
 
 class UserOut(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -130,6 +132,7 @@ async def login(payload: LoginIn):
             "name": user["name"],
             "email": user.get("email"),
             "role": user["role"],
+            "ciudad": user.get("ciudad"),
         },
     }
 
@@ -157,6 +160,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
         "name": payload.name.strip(),
         "email": payload.email,
         "role": payload.role,
+        "ciudad": (payload.ciudad or "").strip() or None,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -174,6 +178,8 @@ async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(re
         if payload.role not in ("admin", "user"):
             raise HTTPException(status_code=400, detail="Rol inválido")
         update["role"] = payload.role
+    if payload.ciudad is not None:
+        update["ciudad"] = (payload.ciudad or "").strip() or None
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     if not update:
@@ -202,16 +208,50 @@ MODULES = {
     "rutas": "rutas",
 }
 
+def _norm(s):
+    return str(s or "").strip().upper()
+
+async def _resolve_cities(module: str, user: dict, ciudades_param: Optional[str]) -> Optional[set]:
+    """Return set of uppercase city names to keep, or None to keep everything."""
+    if module in ("talleres", "conductores"):
+        return None
+    if user.get("role") == "user":
+        c = _norm(user.get("ciudad"))
+        return {c} if c else set()
+    if not ciudades_param:
+        return None
+    parts = [_norm(p) for p in ciudades_param.split(",") if p and p.strip()]
+    return set(parts) if parts else None
+
+async def _filter_by_cities(module: str, docs: list, cities: Optional[set]) -> list:
+    if cities is None:
+        return docs
+    if not cities:
+        return []
+    if module == "flota":
+        return [d for d in docs if _norm(d.get("Ubicacion")) in cities]
+    if module == "impuestos":
+        return [d for d in docs if _norm(d.get("Ciudad")) in cities]
+    flota_docs = await db.flota.find({}, {"_id": 0, "Placa Vehiculo": 1, "Ubicacion": 1}).to_list(5000)
+    placas_ok = {_norm(f.get("Placa Vehiculo")) for f in flota_docs if _norm(f.get("Ubicacion")) in cities}
+    def get_placa(d):
+        v = d.get("Placa Vehículo") or d.get("Placa Vehiculo")
+        return _norm(v)
+    return [d for d in docs if get_placa(d) in placas_ok]
+
+
+
 def _validate_module(m: str) -> str:
     if m not in MODULES:
         raise HTTPException(status_code=404, detail="Módulo no existe")
     return MODULES[m]
 
 @api.get("/modules/{module}")
-async def list_records(module: str, user: dict = Depends(get_current_user)):
+async def list_records(module: str, ciudades: Optional[str] = None, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
     docs = await db[col].find({}, {"_id": 0}).to_list(5000)
-    return docs
+    cities = await _resolve_cities(module, user, ciudades)
+    return await _filter_by_cities(module, docs, cities)
 
 @api.post("/modules/{module}")
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
@@ -428,6 +468,12 @@ async def dashboard(
         ],
         "consumo_por_vehiculo": sorted(consumo_por_vehiculo, key=lambda x: -x["km_recorridos"])[:20],
     }
+
+@api.get("/cities")
+async def list_cities(user: dict = Depends(get_current_user)):
+    docs = await db.flota.find({}, {"_id": 0, "Ubicacion": 1}).to_list(5000)
+    cities = sorted({str(d.get("Ubicacion") or "").strip() for d in docs if d.get("Ubicacion")})
+    return {"cities": cities}
 
 # ---- Alerts / Export / Map ----
 CITY_COORDS = {
