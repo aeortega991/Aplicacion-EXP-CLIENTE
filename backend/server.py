@@ -231,6 +231,14 @@ async def create_record(module: str, payload: RecordIn, user: dict = Depends(get
     doc = {"id": str(uuid.uuid4()), **data, "_created_by": user["username"], "_created_at": datetime.now(timezone.utc).isoformat()}
     await db[col].insert_one(doc)
     doc.pop("_id", None)
+
+    # Notify by email when a multa is created without payment date
+    if module == "multas" and not data.get("Fecha de pago"):
+        try:
+            await _notify_multa_sin_pago(data)
+        except Exception as e:
+            logging.warning(f"Multa notify failed: {e}")
+
     return doc
 
 @api.put("/modules/{module}/{record_id}")
@@ -963,6 +971,64 @@ async def send_mnto_emails(user: dict = Depends(require_admin)):
             skipped.append({"placa": placa, "razon": f"Error: {e.detail}"})
 
     return {"total_enviados": len(sent), "total_omitidos": len(skipped), "enviados": sent, "omitidos": skipped}
+
+async def _notify_multa_sin_pago(multa: dict) -> Optional[str]:
+    """Send email to the vehicle's assigned user when a fine is created without payment date."""
+    placa = multa.get("Placa Vehículo") or multa.get("Placa Vehiculo")
+    if not placa:
+        return None
+    veh = await db.flota.find_one({"Placa Vehiculo": placa}, {"_id": 0})
+    if not veh:
+        return None
+    asignado_raw = veh.get("Usuario asignado") or ""
+    asignado = str(asignado_raw).strip().lower()
+    u = await db.users.find_one({"username": asignado}, {"_id": 0}) if asignado else None
+    email = (u.get("email") if u else None) or None
+    if not email:
+        logging.info(f"Multa {placa}: sin email para usuario '{asignado_raw or '—'}'")
+        return None
+
+    conductor = escape(str(multa.get("Conductor") or "—"))
+    infraccion = escape(str(multa.get("Infracción") or "—"))
+    fecha_multa = escape(str(multa.get("Fecha") or "—")[:10])
+    importe = _num(multa.get("Importe multa ($)"))
+    debe = _num(multa.get("Debe ($)"))
+    marca_modelo = escape(f"{veh.get('Marca','')} {veh.get('Modelo','')}".strip())
+    subject = f"Multa pendiente de pago — Vehículo {placa}"
+    html = (
+        '<table role="presentation" width="100%" style="max-width:560px;margin:0 auto;'
+        'font-family:Arial,sans-serif;background:#ffffff">'
+        '<tr><td style="padding:24px;border-bottom:3px solid #F59E0B">'
+        f'<h2 style="margin:0;color:#111827;font-size:20px">Multa registrada sin fecha de pago</h2>'
+        f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p>'
+        '</td></tr>'
+        '<tr><td style="padding:20px 24px;color:#111827;font-size:14px;line-height:1.5">'
+        f'<p>Hola <strong>{escape(str(u.get("name","Responsable")))}</strong>,</p>'
+        f'<p>Se registró una nueva multa asociada al vehículo bajo tu cargo y aún <strong>no tiene fecha de pago</strong>:</p>'
+        '<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:13px">'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold;width:35%">Placa</td>'
+        f'<td style="padding:8px;background:#FEF3C7;font-family:monospace">{escape(str(placa))}</td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Vehículo</td>'
+        f'<td style="padding:8px">{marca_modelo}</td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Conductor</td>'
+        f'<td style="padding:8px">{conductor}</td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Fecha de la multa</td>'
+        f'<td style="padding:8px">{fecha_multa}</td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Infracción</td>'
+        f'<td style="padding:8px">{infraccion}</td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Importe</td>'
+        f'<td style="padding:8px;font-family:monospace"><strong>${importe:,.2f}</strong></td></tr>'
+        f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Saldo por pagar</td>'
+        f'<td style="padding:8px;font-family:monospace;color:#D92D20"><strong>${debe:,.2f}</strong></td></tr>'
+        '</table>'
+        '<p>Por favor coordina el pago y registra la fecha en el sistema.</p>'
+        '</td></tr>'
+        '<tr><td style="padding:16px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+        f'Este mensaje fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca pedimos '
+        'contraseñas ni datos de tarjeta por correo.'
+        '</td></tr></table>'
+    )
+    return await _send_email(to=email, subject=subject, html=html)
 
 
 async def seed_admin_and_data():
