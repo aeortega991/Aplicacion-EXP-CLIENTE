@@ -10,6 +10,7 @@ import {
   IdCard,
   AlertTriangle,
   Settings,
+  Route,
   Users,
   LogOut,
 } from "lucide-react";
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const ICONS = {
-  Truck, ShieldCheck, FileText, Wrench, IdCard, AlertTriangle, Settings,
+  Truck, ShieldCheck, FileText, Wrench, IdCard, AlertTriangle, Settings, Route,
 };
 
 export default function AppLayout() {

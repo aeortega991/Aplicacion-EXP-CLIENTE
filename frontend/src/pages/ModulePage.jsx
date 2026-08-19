@@ -17,18 +17,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtCell = (val, key) => {
   if (val === null || val === undefined || val === "") return "—";
   if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val)) {
-    try {
-      return new Date(val).toLocaleDateString("es-EC");
-    } catch { return val; }
+    try { return new Date(val).toLocaleDateString("es-EC"); } catch { return val; }
   }
-  if (/\$|Importe|Costo|Impuesto|Debe|Pagado/i.test(key) && !isNaN(Number(val))) {
+  if (/\$|Importe|Costo|Impuesto|Debe|Pagado|Total Combustible|Gasto/i.test(key) && !isNaN(Number(val))) {
     return money(val);
   }
   return String(val);
@@ -52,6 +49,7 @@ export default function ModulePage({ moduleKey }) {
   const [editing, setEditing] = useState(null);
   const [formData, setFormData] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [dynamicOptions, setDynamicOptions] = useState({}); // sourceName -> [values]
 
   const load = async () => {
     setLoading(true);
@@ -67,6 +65,17 @@ export default function ModulePage({ moduleKey }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [moduleKey]);
 
+  // Load dynamic options for select fields
+  useEffect(() => {
+    const sources = [...new Set(mod.fields.filter((f) => f.dynamicSource).map((f) => f.dynamicSource))];
+    sources.forEach(async (src) => {
+      try {
+        const { data } = await api.get(`/modules/${src}`);
+        setDynamicOptions((s) => ({ ...s, [src]: data }));
+      } catch {}
+    });
+  }, [mod]);
+
   const filtered = useMemo(() => {
     if (!search) return records;
     const q = search.toLowerCase();
@@ -74,6 +83,15 @@ export default function ModulePage({ moduleKey }) {
       Object.values(r).some((v) => String(v || "").toLowerCase().includes(q))
     );
   }, [records, search]);
+
+  // Recompute derived fields whenever formData changes
+  const derivedData = useMemo(() => {
+    const d = { ...formData };
+    mod.fields.forEach((f) => {
+      if (f.derived) d[f.key] = f.derived(d);
+    });
+    return d;
+  }, [formData, mod]);
 
   const openCreate = () => {
     const initial = {};
@@ -95,7 +113,7 @@ export default function ModulePage({ moduleKey }) {
     e.preventDefault();
     const payload = {};
     mod.fields.forEach((f) => {
-      let v = formData[f.key];
+      let v = f.derived ? f.derived(formData) : formData[f.key];
       if (v === "") { payload[f.key] = null; return; }
       if (f.type === "number" && v !== null && v !== "") v = Number(v);
       payload[f.key] = v;
@@ -129,6 +147,16 @@ export default function ModulePage({ moduleKey }) {
 
   const columns = mod.listColumns;
 
+  const getFieldOptions = (f) => {
+    if (f.options) return f.options;
+    if (f.dynamicSource) {
+      const rows = dynamicOptions[f.dynamicSource] || [];
+      const key = f.sourceKey || "Placa Vehiculo";
+      return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
+    }
+    return [];
+  };
+
   return (
     <div className="p-8" data-testid={`module-${moduleKey}-page`}>
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -142,13 +170,7 @@ export default function ModulePage({ moduleKey }) {
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-            <Input
-              placeholder="Buscar…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 w-64"
-              data-testid={`${moduleKey}-search-input`}
-            />
+            <Input placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 w-64" data-testid={`${moduleKey}-search-input`} />
           </div>
           <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid={`${moduleKey}-add-button`}>
             <Plus className="w-4 h-4" /> Agregar
@@ -166,9 +188,7 @@ export default function ModulePage({ moduleKey }) {
                     {mod.fields.find((f) => f.key === c)?.label || c}
                   </TableHead>
                 ))}
-                <TableHead className="w-32 text-right text-xs uppercase tracking-wider text-neutral-600 font-semibold">
-                  Acciones
-                </TableHead>
+                <TableHead className="w-32 text-right text-xs uppercase tracking-wider text-neutral-600 font-semibold">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -176,7 +196,7 @@ export default function ModulePage({ moduleKey }) {
                 <TableRow><TableCell colSpan={columns.length + 1} className="text-center py-10 text-neutral-500">Cargando…</TableCell></TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow><TableCell colSpan={columns.length + 1} className="text-center py-10 text-neutral-500">Sin registros</TableCell></TableRow>
-              ) : filtered.map((r) => (
+              ) : filtered.slice(0, 500).map((r) => (
                 <TableRow key={r.id} className="hover:bg-neutral-50" data-testid={`${moduleKey}-row`}>
                   {columns.map((c) => {
                     const val = r[c];
@@ -188,7 +208,7 @@ export default function ModulePage({ moduleKey }) {
                             {String(val)}
                           </span>
                         ) : (
-                          <span className={/\$|Importe|Costo|Impuesto|Debe|Pagado|Km|Odómetro|Año|Puntos/i.test(c) ? "font-mono" : ""}>
+                          <span className={/\$|Importe|Costo|Impuesto|Debe|Pagado|Km|Odómetro|Año|Puntos|Galón|gal/i.test(c) ? "font-mono" : ""}>
                             {fmtCell(val, c)}
                           </span>
                         )}
@@ -214,55 +234,60 @@ export default function ModulePage({ moduleKey }) {
             </TableBody>
           </Table>
         </div>
+        {filtered.length > 500 && (
+          <div className="p-3 text-xs text-neutral-500 border-t border-neutral-200 bg-neutral-50">
+            Mostrando 500 de {filtered.length} registros. Usa el buscador para filtrar.
+          </div>
+        )}
       </div>
 
-      {/* Form Dialog */}
       <Dialog open={openForm} onOpenChange={setOpenForm}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid={`${moduleKey}-form-dialog`}>
           <DialogHeader>
             <DialogTitle>{editing ? "Editar" : "Nuevo"} — {mod.label}</DialogTitle>
-            <DialogDescription>Completa los campos del formulario.</DialogDescription>
+            <DialogDescription>Completa los campos. Los campos marcados (auto) se calculan automáticamente.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mod.fields.map((f) => (
-              <div key={f.key} className={f.type === "textarea" ? "md:col-span-2 space-y-2" : "space-y-2"}>
-                <Label htmlFor={f.key} className="text-xs">
-                  {f.label}{f.required && <span className="text-red-600"> *</span>}
-                </Label>
-                {f.type === "select" ? (
-                  <Select
-                    value={formData[f.key] ? String(formData[f.key]) : ""}
-                    onValueChange={(v) => setFormData((s) => ({ ...s, [f.key]: v }))}
-                  >
-                    <SelectTrigger id={f.key} data-testid={`${moduleKey}-field-${f.key}`}>
-                      <SelectValue placeholder="Seleccionar…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {f.options.map((op) => (
-                        <SelectItem key={op} value={op}>{op}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : f.type === "textarea" ? (
-                  <Textarea
-                    id={f.key}
-                    value={formData[f.key] || ""}
-                    onChange={(e) => setFormData((s) => ({ ...s, [f.key]: e.target.value }))}
-                    data-testid={`${moduleKey}-field-${f.key}`}
-                  />
-                ) : (
-                  <Input
-                    id={f.key}
-                    type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
-                    value={formData[f.key] ?? ""}
-                    onChange={(e) => setFormData((s) => ({ ...s, [f.key]: e.target.value }))}
-                    required={f.required}
-                    step={f.type === "number" ? "any" : undefined}
-                    data-testid={`${moduleKey}-field-${f.key}`}
-                  />
-                )}
-              </div>
-            ))}
+            {mod.fields.map((f) => {
+              const value = f.derived ? derivedData[f.key] : formData[f.key];
+              const isDerived = !!f.derived;
+              return (
+                <div key={f.key} className={f.type === "textarea" ? "md:col-span-2 space-y-2" : "space-y-2"}>
+                  <Label htmlFor={f.key} className="text-xs">
+                    {f.label}{f.required && <span className="text-red-600"> *</span>}
+                  </Label>
+                  {isDerived ? (
+                    <Input id={f.key} value={value ?? ""} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
+                  ) : f.type === "select" ? (
+                    <Select
+                      value={formData[f.key] ? String(formData[f.key]) : ""}
+                      onValueChange={(v) => setFormData((s) => ({ ...s, [f.key]: v }))}
+                    >
+                      <SelectTrigger id={f.key} data-testid={`${moduleKey}-field-${f.key}`}>
+                        <SelectValue placeholder="Seleccionar…" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {getFieldOptions(f).map((op) => (
+                          <SelectItem key={op} value={op}>{op}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : f.type === "textarea" ? (
+                    <Textarea id={f.key} value={formData[f.key] || ""} onChange={(e) => setFormData((s) => ({ ...s, [f.key]: e.target.value }))} data-testid={`${moduleKey}-field-${f.key}`} />
+                  ) : (
+                    <Input
+                      id={f.key}
+                      type={f.type === "date" ? "date" : f.type === "number" ? "number" : "text"}
+                      value={formData[f.key] ?? ""}
+                      onChange={(e) => setFormData((s) => ({ ...s, [f.key]: e.target.value }))}
+                      required={f.required}
+                      step={f.type === "number" ? "any" : undefined}
+                      data-testid={`${moduleKey}-field-${f.key}`}
+                    />
+                  )}
+                </div>
+              );
+            })}
             <DialogFooter className="md:col-span-2 pt-4">
               <Button type="button" variant="outline" onClick={() => setOpenForm(false)}>Cancelar</Button>
               <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white" data-testid={`${moduleKey}-submit-btn`}>

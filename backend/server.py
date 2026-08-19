@@ -192,6 +192,7 @@ MODULES = {
     "conductores": "conductores",
     "multas": "multas",
     "mantenimiento": "mantenimiento",
+    "rutas": "rutas",
 }
 
 def _validate_module(m: str) -> str:
@@ -242,8 +243,22 @@ def _num(v):
     except Exception:
         return 0.0
 
+def _parse_dt(s):
+    if not s: return None
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except Exception:
+        try:
+            return datetime.strptime(str(s)[:10], "%Y-%m-%d")
+        except Exception:
+            return None
+
 @api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
+async def dashboard(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
     flota = await db.flota.find({}, {"_id": 0}).to_list(5000)
     seguros = await db.seguros.find({}, {"_id": 0}).to_list(5000)
     impuestos = await db.impuestos.find({}, {"_id": 0}).to_list(5000)
@@ -301,8 +316,66 @@ async def dashboard(user: dict = Depends(get_current_user)):
     for r in mantenimiento:
         total_gasto_mantenimiento += _num(r.get("Costo Total ($)"))
 
+    # Consumo combustible desde Rutas (con filtro de fecha)
+    rutas = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    d_from = _parse_dt(desde) if desde else None
+    d_to = _parse_dt(hasta) if hasta else None
+    combustible_por_vehiculo: Dict[str, Dict[str, float]] = {}
+    for r in rutas:
+        fecha = _parse_dt(r.get("Fecha de Salida"))
+        if d_from and fecha and fecha < d_from: continue
+        if d_to and fecha and fecha > d_to: continue
+        placa = r.get("Placa Vehiculo")
+        if not placa: continue
+        # Km from odometer diff (source of truth, ignore stored "Kms Recorridos" which may be dirty)
+        km_ini = _num(r.get("Kms Inicial (Odómetro)"))
+        km_fin = _num(r.get("Kms Final (Odómetro)"))
+        km = km_fin - km_ini
+        if km <= 0 or km > 3000:  # ignore outliers / invalid rows
+            continue
+        precio = _num(r.get("Precio x Galón ($/gal)"))
+        total_comb = _num(r.get("Total Combustible ($)"))
+        vol = _num(r.get("Volumen de Combustible (gal)"))
+        # Prefer computed volume from precio+total if consistent; else use stored volume
+        if precio > 0 and total_comb > 0:
+            vol = total_comb / precio
+        # Only count fuel figures if we actually have consumption data
+        if vol <= 0 or total_comb <= 0:
+            vol = 0
+            total_comb = 0
+        if placa not in combustible_por_vehiculo:
+            combustible_por_vehiculo[placa] = {"km": 0.0, "galones": 0.0, "gasto": 0.0, "viajes": 0, "km_con_comb": 0.0}
+        combustible_por_vehiculo[placa]["km"] += km
+        combustible_por_vehiculo[placa]["galones"] += vol
+        combustible_por_vehiculo[placa]["gasto"] += total_comb
+        combustible_por_vehiculo[placa]["viajes"] += 1
+        if vol > 0:
+            combustible_por_vehiculo[placa]["km_con_comb"] += km
+
+    consumo_combustible = []
+    for placa, s in combustible_por_vehiculo.items():
+        # Use only km_con_comb (km on trips where we had fuel data) for the ratio
+        km_gal = (s["km_con_comb"] / s["galones"]) if s["galones"] > 0 else 0
+        # Sanity cap: realistic vehicle range 3-30 km/gal; anything outside is dirty
+        if km_gal > 60 or km_gal < 0:
+            km_gal = 0
+        consumo_combustible.append({
+            "placa": placa,
+            "km_recorridos": round(s["km"], 2),
+            "galones": round(s["galones"], 2),
+            "gasto": round(s["gasto"], 2),
+            "km_por_galon": round(km_gal, 2),
+            "viajes": s["viajes"],
+        })
+    # Sort by rendimiento (km/gal) for the fuel efficiency chart
+    consumo_combustible.sort(key=lambda x: -x["km_por_galon"])
+
     total_gasto = sum(gasto_por_vehiculo.values())
     promedio_km = (total_km / len(consumo_por_vehiculo)) if consumo_por_vehiculo else 0
+    total_galones = sum(x["galones"] for x in consumo_combustible)
+    # Average km/gal computed only from vehicles with valid km/gal (>0)
+    valid = [x for x in consumo_combustible if x["km_por_galon"] > 0]
+    km_gal_prom = sum(x["km_por_galon"] for x in valid) / len(valid) if valid else 0
 
     return {
         "kpis": {
@@ -312,7 +385,10 @@ async def dashboard(user: dict = Depends(get_current_user)):
             "km_total": round(total_km, 2),
             "km_promedio": round(promedio_km, 2),
             "gasto_mantenimiento": round(total_gasto_mantenimiento, 2),
+            "total_galones": round(total_galones, 2),
+            "km_por_galon_prom": round(km_gal_prom, 2),
         },
+        "consumo_combustible": consumo_combustible,
         "gasto_por_vehiculo": [
             {"placa": p, "gasto": round(t, 2)} for p, t in sorted(gasto_por_vehiculo.items(), key=lambda x: -x[1])
         ],
@@ -371,6 +447,7 @@ async def seed_admin_and_data():
             "Flota": "flota", "Seguros": "seguros", "Impuestos": "impuestos",
             "Talleres": "talleres", "Conductores": "conductores",
             "Multas": "multas", "Mantenimiento": "mantenimiento",
+            "Rutas": "rutas",
         }
         for sheet, col in mapping.items():
             existing_count = await db[col].count_documents({})

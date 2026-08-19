@@ -1,5 +1,5 @@
 // Module schemas mirror the Excel sheet columns exactly (Spanish).
-// Each field: { key: 'Column Name', label: 'Display Label', type: 'text|number|date|select|textarea', options?: [] }
+// Each field: { key, label, type, options?, required?, dynamicSource?, derived? }
 
 export const MODULES = [
   {
@@ -92,6 +92,51 @@ export const MODULES = [
       { key: "Puntos", label: "Puntos", type: "number" },
     ],
     listColumns: ["Doc Identidad", "Conductor", "Nro Licencia", "Direccion", "Telefono/celular", "Calificación", "Puntos"],
+  },
+  {
+    key: "rutas",
+    label: "Rutas",
+    icon: "Route",
+    fields: [
+      { key: "Fecha de Salida", label: "Fecha de Salida", type: "date", required: true },
+      { key: "Fecha de Llegada", label: "Fecha de Llegada", type: "date", required: true },
+      { key: "Placa Vehiculo", label: "Vehículo (Placa)", type: "select", required: true, dynamicSource: "flota", sourceKey: "Placa Vehiculo" },
+      { key: "Conductor", label: "Conductor", type: "select", dynamicSource: "conductores", sourceKey: "Conductor" },
+      { key: "Estado Vehículo", label: "Estado Vehículo", type: "select", options: ["Disponible", "En Ruta", "En Taller"] },
+      { key: "Origen", label: "Origen", type: "text", required: true },
+      { key: "Destino", label: "Destino", type: "text", required: true },
+      { key: "Kms Inicial (Odómetro)", label: "Km Salida (Odómetro)", type: "number", required: true },
+      { key: "Kms Final (Odómetro)", label: "Km Regreso (Odómetro)", type: "number", required: true },
+      { key: "Kms Recorridos", label: "Km Recorridos (auto)", type: "number", derived: (d) => Math.max(Number(d["Kms Final (Odómetro)"] || 0) - Number(d["Kms Inicial (Odómetro)"] || 0), 0) },
+      { key: "Estación de Combustible", label: "Estación de Combustible", type: "text" },
+      { key: "Tipo de Combustible", label: "Tipo de Combustible", type: "select", options: ["Diesel", "Gasolina Extra", "Gasolina Super", "Ecopaís"] },
+      { key: "Precio x Galón ($/gal)", label: "Precio por Galón ($/gal)", type: "number" },
+      { key: "Total Combustible ($)", label: "Total Combustible ($)", type: "number" },
+      { key: "Volumen de Combustible (gal)", label: "Galones (auto)", type: "number", derived: (d) => {
+        const p = Number(d["Precio x Galón ($/gal)"] || 0);
+        const t = Number(d["Total Combustible ($)"] || 0);
+        return p > 0 ? +(t / p).toFixed(2) : 0;
+      }},
+      { key: "Recorrido por und. de comb. (Km/gal)", label: "Rendimiento (Km/gal) (auto)", type: "number", derived: (d) => {
+        const p = Number(d["Precio x Galón ($/gal)"] || 0);
+        const t = Number(d["Total Combustible ($)"] || 0);
+        const km = Math.max(Number(d["Kms Final (Odómetro)"] || 0) - Number(d["Kms Inicial (Odómetro)"] || 0), 0);
+        const gal = p > 0 ? t / p : 0;
+        return gal > 0 ? +(km / gal).toFixed(2) : 0;
+      }},
+      { key: "Gasto peajes ($)", label: "Gasto Peajes ($)", type: "number" },
+      { key: "Gasto comidas ($)", label: "Gasto Comidas ($)", type: "number" },
+      { key: "Otros Gastos ($)", label: "Otros Gastos ($)", type: "number" },
+      { key: "Gasto Total ($)", label: "Gasto Total ($) (auto)", type: "number", derived: (d) => {
+        const t = Number(d["Total Combustible ($)"] || 0);
+        const p = Number(d["Gasto peajes ($)"] || 0);
+        const c = Number(d["Gasto comidas ($)"] || 0);
+        const o = Number(d["Otros Gastos ($)"] || 0);
+        return +(t + p + c + o).toFixed(2);
+      }},
+      { key: "Observaciones", label: "Observaciones", type: "textarea" },
+    ],
+    listColumns: ["Fecha de Salida", "Placa Vehiculo", "Conductor", "Origen", "Destino", "Kms Recorridos", "Total Combustible ($)", "Recorrido por und. de comb. (Km/gal)", "Gasto Total ($)"],
   },
   {
     key: "multas",

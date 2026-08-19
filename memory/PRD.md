@@ -24,6 +24,8 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Dashboard con KPIs + 4 gráficos (Feb 2026)
 - Gestión de usuarios (solo admin) (Feb 2026)
 - Autorización basada en rol: usuarios `user` no pueden editar/eliminar
+- **Módulo Rutas (Feb 2026)**: 1009 rutas sembradas; formulario con selects dinámicos (vehículo desde Flota, conductor desde Conductores) y **cálculo automático** de Km Recorridos, Galones, Rendimiento (Km/gal) y Gasto Total
+- **Dashboard extendido (Feb 2026)**: filtros de fecha (desde/hasta) + 2 KPIs nuevos (Galones, Rendimiento km/gal) + nuevo gráfico combo "Consumo de Combustible por Vehículo (Km/gal)"
 
 ## Test Credentials
 - Admin: `aeortega` / `admin123`
