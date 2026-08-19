@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Download, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtCell = (val, key) => {
@@ -53,6 +53,8 @@ export default function ModulePage({ moduleKey }) {
   const [formData, setFormData] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [dynamicOptions, setDynamicOptions] = useState({}); // sourceName -> [values]
+  const [sortBy, setSortBy] = useState(null);
+  const [sortDir, setSortDir] = useState("asc"); // 'asc' | 'desc'
 
   const load = async () => {
     setLoading(true);
@@ -80,12 +82,47 @@ export default function ModulePage({ moduleKey }) {
   }, [mod]);
 
   const filtered = useMemo(() => {
-    if (!search) return records;
-    const q = search.toLowerCase();
-    return records.filter((r) =>
-      Object.values(r).some((v) => String(v || "").toLowerCase().includes(q))
-    );
-  }, [records, search]);
+    let base = records;
+    if (search) {
+      const q = search.toLowerCase();
+      base = base.filter((r) => Object.values(r).some((v) => String(v || "").toLowerCase().includes(q)));
+    }
+    if (!sortBy) return base;
+    const isDateKey = /fecha/i.test(sortBy);
+    const cmp = (a, b) => {
+      const va = a[sortBy];
+      const vb = b[sortBy];
+      const ea = va === null || va === undefined || va === "";
+      const eb = vb === null || vb === undefined || vb === "";
+      if (ea && eb) return 0;
+      if (ea) return 1;   // empties always last
+      if (eb) return -1;
+      if (isDateKey) {
+        const da = new Date(va).getTime();
+        const db = new Date(vb).getTime();
+        if (!isNaN(da) && !isNaN(db)) return sortDir === "asc" ? da - db : db - da;
+      }
+      const na = Number(va);
+      const nb = Number(vb);
+      if (!isNaN(na) && !isNaN(nb) && (typeof va === "number" || /^[\d.,-]+$/.test(String(va)))) {
+        return sortDir === "asc" ? na - nb : nb - na;
+      }
+      return sortDir === "asc"
+        ? String(va).localeCompare(String(vb), "es", { numeric: true, sensitivity: "base" })
+        : String(vb).localeCompare(String(va), "es", { numeric: true, sensitivity: "base" });
+    };
+    return [...base].sort(cmp);
+  }, [records, search, sortBy, sortDir]);
+
+  const toggleSort = (col) => {
+    if (sortBy === col) {
+      if (sortDir === "asc") setSortDir("desc");
+      else { setSortBy(null); setSortDir("asc"); }
+    } else {
+      setSortBy(col);
+      setSortDir("asc");
+    }
+  };
 
   // Recompute derived fields whenever formData changes
   const derivedData = useMemo(() => {
@@ -212,11 +249,28 @@ export default function ModulePage({ moduleKey }) {
           <Table>
             <TableHeader>
               <TableRow className="bg-neutral-50">
-                {columns.map((c) => (
-                  <TableHead key={c} className="whitespace-nowrap text-xs uppercase tracking-wider text-neutral-600 font-semibold">
-                    {mod.fields.find((f) => f.key === c)?.label || c}
-                  </TableHead>
-                ))}
+                {columns.map((c) => {
+                  const active = sortBy === c;
+                  return (
+                    <TableHead
+                      key={c}
+                      onClick={() => toggleSort(c)}
+                      className="whitespace-nowrap text-xs uppercase tracking-wider text-neutral-600 font-semibold cursor-pointer select-none hover:bg-neutral-100 transition-colors"
+                      data-testid={`${moduleKey}-sort-${c}`}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        {mod.fields.find((f) => f.key === c)?.label || c}
+                        {active ? (
+                          sortDir === "asc"
+                            ? <ArrowUp className="w-3 h-3 text-red-600" />
+                            : <ArrowDown className="w-3 h-3 text-red-600" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-neutral-300" />
+                        )}
+                      </span>
+                    </TableHead>
+                  );
+                })}
                 <TableHead className="w-32 text-right text-xs uppercase tracking-wider text-neutral-600 font-semibold">Acciones</TableHead>
               </TableRow>
             </TableHeader>
