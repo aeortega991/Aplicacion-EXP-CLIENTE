@@ -16,6 +16,12 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import httpx
+import re
+import ipaddress
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
@@ -210,7 +216,19 @@ async def list_records(module: str, user: dict = Depends(get_current_user)):
 @api.post("/modules/{module}")
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
-    doc = {"id": str(uuid.uuid4()), **payload.data, "_created_by": user["username"], "_created_at": datetime.now(timezone.utc).isoformat()}
+    data = dict(payload.data)
+    # Auto-generate ascending Nro for mantenimiento if not supplied
+    if module == "mantenimiento" and not data.get("Nro"):
+        docs = await db[col].find({}, {"Nro": 1, "_id": 0}).to_list(20000)
+        max_nro = 0
+        for d in docs:
+            try:
+                n = int(d.get("Nro") or 0)
+                if n > max_nro: max_nro = n
+            except Exception:
+                pass
+        data["Nro"] = max_nro + 1
+    doc = {"id": str(uuid.uuid4()), **data, "_created_by": user["username"], "_created_at": datetime.now(timezone.utc).isoformat()}
     await db[col].insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -604,6 +622,349 @@ async def rutas_map(desde: Optional[str] = None, hasta: Optional[str] = None, us
         "rutas": rutas_list,
         "no_mapeadas": sorted(list(unknown)),
     }
+
+# ---- Vehicle history + PDF + Email ----
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Control de Flota")
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
+
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "send us your password", "enter your password below", "confirm your card number",
+             "your full card number", "seed phrase", "recovery phrase", "verify your card",
+             "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links must be https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Bad URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real: continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} != real host {real!r} (G3)")
+
+async def _send_email(*, to: str, subject: str, html: str) -> Optional[str]:
+    if not EMAIL_KEY:
+        raise HTTPException(status_code=503, detail="Servicio de email no configurado")
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    if EMAIL_REPLY_TO:
+        payload["contact_email"] = EMAIL_REPLY_TO
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMAIL_KEY},
+                json=payload,
+            )
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except httpx.HTTPStatusError as e:
+        logging.error(f"Email send failed: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=502, detail=f"Envío falló: {e.response.status_code}")
+
+@api.get("/vehicles/{placa}/history")
+async def vehicle_history(placa: str, user: dict = Depends(get_current_user)):
+    placa = placa.upper().strip()
+    vehiculo = await db.flota.find_one({"Placa Vehiculo": placa}, {"_id": 0})
+    if not vehiculo:
+        raise HTTPException(status_code=404, detail="Vehículo no encontrado")
+
+    seguros = await db.seguros.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
+    impuestos = await db.impuestos.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
+    mantenimiento = await db.mantenimiento.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
+    rutas = await db.rutas.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(2000)
+    multas_a = await db.multas.find({"Placa Vehículo": placa}, {"_id": 0}).to_list(500)
+    multas_b = await db.multas.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
+    multas = multas_a + multas_b
+
+    total_seguros = sum(_num(s.get("Importe Pagado ()") or s.get("Importe Pagado ($)")) for s in seguros)
+    total_impuestos = sum(_num(i.get("Impuesto ($)")) for i in impuestos)
+    total_mnto = sum(_num(m.get("Costo Total ($)")) for m in mantenimiento)
+    total_multas = sum(_num(m.get("Importe pagado ($)")) for m in multas)
+    total_combustible = sum(_num(r.get("Total Combustible ($)")) for r in rutas)
+    km_rutas = 0.0
+    for r in rutas:
+        km = _num(r.get("Kms Final (Odómetro)")) - _num(r.get("Kms Inicial (Odómetro)"))
+        if 0 < km < 3000: km_rutas += km
+
+    return {
+        "vehiculo": vehiculo,
+        "seguros": seguros,
+        "impuestos": impuestos,
+        "mantenimiento": mantenimiento,
+        "rutas": rutas,
+        "multas": multas,
+        "totales": {
+            "seguros": round(total_seguros, 2),
+            "impuestos": round(total_impuestos, 2),
+            "mantenimiento": round(total_mnto, 2),
+            "multas": round(total_multas, 2),
+            "combustible": round(total_combustible, 2),
+            "gasto_total": round(total_seguros + total_impuestos + total_mnto + total_multas + total_combustible, 2),
+            "km_recorridos": round(km_rutas, 2),
+            "rutas_count": len(rutas),
+        },
+    }
+
+def _fmt_money(v):
+    try: return f"${float(v):,.2f}"
+    except Exception: return "-"
+
+def _fmt_date(v):
+    if not v: return "-"
+    s = str(v)
+    if "T" in s: s = s.split("T")[0]
+    return s
+
+@api.get("/vehicles/{placa}/history/pdf")
+async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from io import BytesIO
+
+    hist = await vehicle_history(placa, user)
+    v = hist["vehiculo"]
+    t = hist["totales"]
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.5*inch, rightMargin=0.5*inch)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="H1red", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=6))
+    styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
+    styles.add(ParagraphStyle(name="small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
+
+    story = []
+    story.append(Paragraph("Historial de Vehículo", styles["H1red"]))
+    story.append(Paragraph(f"Placa: <b>{escape(placa.upper())}</b> · Generado: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["small"]))
+    story.append(Spacer(1, 12))
+
+    ficha = [
+        ["Marca", str(v.get("Marca","-") or "-"), "Modelo", str(v.get("Modelo","-") or "-")],
+        ["Tipo", str(v.get("Tipo","-") or "-"), "Año", str(v.get("Año de fabricacion","-") or "-")],
+        ["Color", str(v.get("Color","-") or "-"), "Empresa", str(v.get("Empresa","-") or "-")],
+        ["Ciudad", str(v.get("Ubicacion","-") or "-"), "Estado", str(v.get("Estado Vehiculo","-") or "-")],
+        ["Usuario Asignado", str(v.get("Usuario asignado","-") or "-"), "Status", str(v.get("Status","-") or "-")],
+        ["Km Actual", f"{_num(v.get('Kms Odómetro Actual')):,.0f}", "Estado Mnto", str(v.get("Estado Mantenimiento Preventivo","-") or "-")],
+    ]
+    tbl = Table(ficha, colWidths=[1.4*inch, 2.1*inch, 1.4*inch, 2.1*inch])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F3F4F6")),
+        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    story.append(tbl)
+
+    story.append(Paragraph("Resumen Económico", styles["H2s"]))
+    tot = [
+        ["Gasto Total", _fmt_money(t["gasto_total"])],
+        ["Seguros", _fmt_money(t["seguros"])],
+        ["Impuestos", _fmt_money(t["impuestos"])],
+        ["Mantenimiento", _fmt_money(t["mantenimiento"])],
+        ["Multas", _fmt_money(t["multas"])],
+        ["Combustible", _fmt_money(t["combustible"])],
+        ["Km recorridos (rutas)", f"{t['km_recorridos']:,.0f} Km"],
+        ["Total viajes", str(t["rutas_count"])],
+    ]
+    tt = Table(tot, colWidths=[3*inch, 2*inch])
+    tt.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#D92D20")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
+        ("ALIGN", (1,0), (1,-1), "RIGHT"),
+    ]))
+    story.append(tt)
+
+    def _section(title, rows, headers):
+        story.append(Paragraph(title, styles["H2s"]))
+        if not rows:
+            story.append(Paragraph("<i>Sin registros.</i>", styles["Normal"]))
+            return
+        data = [headers] + rows
+        tab = Table(data, repeatRows=1)
+        tab.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#E5E7EB")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F9FAFB")]),
+        ]))
+        story.append(tab)
+
+    _section("Seguros", [
+        [_fmt_date(s.get("Fecha de inicio")), _fmt_date(s.get("Fecha de Vencimiento")),
+         str(s.get("Aseguradora") or "-")[:24], str(s.get("Poliza seguro") or "-")[:18],
+         _fmt_money(s.get("Importe Pagado ()") or s.get("Importe Pagado ($)")),
+         str(s.get("Estado Poliza") or "-")[:12]]
+        for s in hist["seguros"]
+    ], ["Inicio", "Vencimiento", "Aseguradora", "Póliza", "Importe", "Estado"])
+
+    _section("Impuestos", [
+        [str(i.get("Año Impuesto") or "-"), str(i.get("Tipo Impuesto") or "-")[:18],
+         _fmt_money(i.get("Impuesto ($)")), _fmt_date(i.get("Fecha de pago")),
+         str(i.get("Ciudad") or "-")[:14], str(i.get("Responsable") or "-")[:18]]
+        for i in hist["impuestos"]
+    ], ["Año", "Tipo", "Impuesto", "F. Pago", "Ciudad", "Responsable"])
+
+    _section("Mantenimiento", [
+        [str(m.get("Nro") or "-"), _fmt_date(m.get("Fecha Entrada")), _fmt_date(m.get("Fecha Salida")),
+         str(m.get("Taller") or "-")[:20], str(m.get("Tipo") or "-")[:12],
+         str(m.get("Paquete de Mantenimiento") or "-")[:22],
+         _fmt_money(m.get("Costo Total ($)"))]
+        for m in hist["mantenimiento"]
+    ], ["Nro", "Entrada", "Salida", "Taller", "Tipo", "Paquete", "Costo"])
+
+    _section("Multas", [
+        [_fmt_date(m.get("Fecha")), str(m.get("Conductor") or "-")[:20],
+         str(m.get("Infracción") or "-")[:26],
+         _fmt_money(m.get("Importe multa ($)")), _fmt_money(m.get("Importe pagado ($)")),
+         str(m.get("Estado Pago") or "-")[:10]]
+        for m in hist["multas"]
+    ], ["Fecha", "Conductor", "Infracción", "Multa", "Pagado", "Estado"])
+
+    rutas_rows = []
+    for r in hist["rutas"][:60]:
+        km = _num(r.get("Kms Final (Odómetro)")) - _num(r.get("Kms Inicial (Odómetro)"))
+        rutas_rows.append([
+            _fmt_date(r.get("Fecha de Salida")),
+            _fmt_date(r.get("Fecha de Llegada")),
+            str(r.get("Origen") or "-")[:14],
+            str(r.get("Destino") or "-")[:14],
+            f"{max(km, 0):,.0f}",
+            _fmt_money(r.get("Total Combustible ($)")),
+            _fmt_money(r.get("Gasto Total ($)")),
+        ])
+    _section(f"Rutas (mostrando {min(60, len(hist['rutas']))} de {len(hist['rutas'])})", rutas_rows,
+             ["Salida", "Llegada", "Origen", "Destino", "Km", "Combustible", "Gasto Total"])
+
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="historial_{placa.upper()}.pdf"'},
+    )
+
+@api.post("/alerts/send-mnto-emails")
+async def send_mnto_emails(user: dict = Depends(require_admin)):
+    flota = await db.flota.find({}, {"_id": 0}).to_list(5000)
+    users_list = await db.users.find({}, {"_id": 0}).to_list(2000)
+    users_by_username = {u.get("username", "").lower(): u for u in users_list}
+
+    sent, skipped = [], []
+    for f in flota:
+        estado = str(f.get("Estado Mantenimiento Preventivo") or "").lower()
+        falta = _num(f.get("Falta para el próximo Mnnto Prev. (Km)"))
+        if not (estado == "ingresar a taller" or falta < 0):
+            continue
+        placa = f.get("Placa Vehiculo") or "—"
+        asignado_raw = f.get("Usuario asignado") or ""
+        asignado = str(asignado_raw).strip().lower()
+        u = users_by_username.get(asignado)
+        email = (u.get("email") if u else None) or None
+        if not email:
+            skipped.append({"placa": placa, "razon": f"Sin email para usuario '{asignado_raw or '—'}'"})
+            continue
+        km_atraso = abs(int(falta)) if falta < 0 else 0
+        marca_modelo = f"{f.get('Marca','')} {f.get('Modelo','')}".strip()
+        subject = f"Mantenimiento vencido — Vehículo {placa}"
+        html = (
+            '<table role="presentation" width="100%" style="max-width:560px;margin:0 auto;'
+            'font-family:Arial,sans-serif;background:#ffffff">'
+            '<tr><td style="padding:24px;border-bottom:3px solid #D92D20">'
+            f'<h2 style="margin:0;color:#111827;font-size:20px">Aviso de Mantenimiento Vencido</h2>'
+            f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p>'
+            '</td></tr>'
+            '<tr><td style="padding:20px 24px;color:#111827;font-size:14px;line-height:1.5">'
+            f'<p>Hola <strong>{escape(str(u.get("name","Responsable")))}</strong>,</p>'
+            f'<p>El vehículo asignado presenta mantenimiento preventivo <strong>vencido</strong>:</p>'
+            '<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:13px">'
+            f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold;width:35%">Placa</td>'
+            f'<td style="padding:8px;background:#FEF2F2;font-family:monospace">{escape(str(placa))}</td></tr>'
+            f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Vehículo</td>'
+            f'<td style="padding:8px">{escape(marca_modelo)}</td></tr>'
+            f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Km de atraso</td>'
+            f'<td style="padding:8px;font-family:monospace;color:#D92D20"><strong>{km_atraso:,} Km</strong></td></tr>'
+            f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Odómetro actual</td>'
+            f'<td style="padding:8px;font-family:monospace">{_num(f.get("Kms Odómetro Actual")):,.0f} Km</td></tr>'
+            '</table>'
+            '<p>Por favor coordina el ingreso a taller lo antes posible.</p>'
+            '</td></tr>'
+            '<tr><td style="padding:16px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+            f'Este mensaje fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca pedimos '
+            'contraseñas ni datos de tarjeta por correo.'
+            '</td></tr></table>'
+        )
+        try:
+            eid = await _send_email(to=email, subject=subject, html=html)
+            sent.append({"placa": placa, "email": email, "usuario": u.get("name"), "email_id": eid})
+        except HTTPException as e:
+            skipped.append({"placa": placa, "razon": f"Error: {e.detail}"})
+
+    return {"total_enviados": len(sent), "total_omitidos": len(skipped), "enviados": sent, "omitidos": skipped}
+
+
 async def seed_admin_and_data():
     # Admin user
     admin_username = os.environ.get("ADMIN_USERNAME", "aeortega").lower()

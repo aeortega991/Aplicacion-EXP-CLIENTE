@@ -8,6 +8,7 @@ import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
 import AlertsPage from "@/pages/AlertsPage";
 import RutasMap from "@/pages/RutasMap";
+import VehicleHistory from "@/pages/VehicleHistory";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -41,6 +42,8 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="alertas" element={<AlertsPage />} />
             <Route path="mapa" element={<RutasMap />} />
+            <Route path="historial" element={<VehicleHistory />} />
+            <Route path="historial/:placa" element={<VehicleHistory />} />
             {MODULES.map((m) => (
               <Route key={m.key} path={m.key} element={<ModulePage moduleKey={m.key} />} />
             ))}

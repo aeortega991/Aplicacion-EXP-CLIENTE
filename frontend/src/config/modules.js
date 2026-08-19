@@ -1,12 +1,11 @@
 // Module schemas mirror the Excel sheet columns exactly (Spanish).
-// Each field: { key, label, type, options?, required?, dynamicSource?, derived? }
+// Extended field props: dynamicSource, sourceKey, sourceFilter (obj), autoGenerate, derived
 
 export const MODULES = [
   {
     key: "flota",
     label: "Flota",
     icon: "Truck",
-    description: "Vehículos de la flota",
     fields: [
       { key: "Nro", label: "Nro", type: "number" },
       { key: "Tipo", label: "Tipo", type: "select", options: ["CAMIONETA", "CAMION", "AUTOMOVIL", "MOTO", "FURGON"] },
@@ -88,10 +87,11 @@ export const MODULES = [
       { key: "Nro Licencia", label: "Nro Licencia", type: "text" },
       { key: "Direccion", label: "Dirección", type: "text" },
       { key: "Telefono/celular", label: "Teléfono", type: "text" },
+      { key: "Correo", label: "Correo electrónico", type: "text" },
       { key: "Calificación", label: "Calificación", type: "select", options: ["★", "★★", "★★★", "★★★★", "★★★★★"] },
       { key: "Puntos", label: "Puntos", type: "number" },
     ],
-    listColumns: ["Doc Identidad", "Conductor", "Nro Licencia", "Direccion", "Telefono/celular", "Calificación", "Puntos"],
+    listColumns: ["Doc Identidad", "Conductor", "Nro Licencia", "Correo", "Telefono/celular", "Calificación", "Puntos"],
   },
   {
     key: "rutas",
@@ -100,9 +100,8 @@ export const MODULES = [
     fields: [
       { key: "Fecha de Salida", label: "Fecha de Salida", type: "date", required: true },
       { key: "Fecha de Llegada", label: "Fecha de Llegada", type: "date", required: true },
-      { key: "Placa Vehiculo", label: "Vehículo (Placa)", type: "select", required: true, dynamicSource: "flota", sourceKey: "Placa Vehiculo" },
+      { key: "Placa Vehiculo", label: "Vehículo (Placa)", type: "select", required: true, dynamicSource: "flota", sourceKey: "Placa Vehiculo", sourceFilter: { key: "Status", equals: "Activo" } },
       { key: "Conductor", label: "Conductor", type: "select", dynamicSource: "conductores", sourceKey: "Conductor" },
-      { key: "Estado Vehículo", label: "Estado Vehículo", type: "select", options: ["Disponible", "En Ruta", "En Taller"] },
       { key: "Origen", label: "Origen", type: "text", required: true },
       { key: "Destino", label: "Destino", type: "text", required: true },
       { key: "Kms Inicial (Odómetro)", label: "Km Salida (Odómetro)", type: "number", required: true },
@@ -162,9 +161,9 @@ export const MODULES = [
     label: "Mantenimiento",
     icon: "Settings",
     fields: [
-      { key: "Nro", label: "Nro", type: "number" },
-      { key: "Placa Vehiculo", label: "Placa", type: "text", required: true },
-      { key: "Taller", label: "Taller", type: "text" },
+      { key: "Nro", label: "Nro (auto)", type: "number", autoGenerate: true },
+      { key: "Placa Vehiculo", label: "Vehículo (Placa)", type: "select", required: true, dynamicSource: "flota", sourceKey: "Placa Vehiculo", sourceFilter: { key: "Status", equals: "Activo" } },
+      { key: "Taller", label: "Taller", type: "select", dynamicSource: "talleres", sourceKey: "Nombre del Taller" },
       { key: "Fecha Entrada", label: "Fecha Entrada", type: "date" },
       { key: "Fecha Salida", label: "Fecha Salida", type: "date" },
       { key: "Tipo", label: "Tipo", type: "select", options: ["Preventivo", "Correctivo"] },
@@ -175,7 +174,7 @@ export const MODULES = [
       { key: "Fecha de Pago", label: "Fecha de Pago", type: "date" },
       { key: "Observaciones", label: "Observaciones", type: "textarea" },
     ],
-    listColumns: ["Placa Vehiculo", "Taller", "Fecha Entrada", "Fecha Salida", "Tipo", "Paquete de Mantenimiento", "Costo Total ($)"],
+    listColumns: ["Nro", "Placa Vehiculo", "Taller", "Fecha Entrada", "Fecha Salida", "Tipo", "Paquete de Mantenimiento", "Costo Total ($)"],
   },
 ];
 

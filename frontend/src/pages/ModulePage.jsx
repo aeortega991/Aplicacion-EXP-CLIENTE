@@ -150,7 +150,10 @@ export default function ModulePage({ moduleKey }) {
   const getFieldOptions = (f) => {
     if (f.options) return f.options;
     if (f.dynamicSource) {
-      const rows = dynamicOptions[f.dynamicSource] || [];
+      let rows = dynamicOptions[f.dynamicSource] || [];
+      if (f.sourceFilter) {
+        rows = rows.filter((r) => String(r[f.sourceFilter.key] || "").toLowerCase() === String(f.sourceFilter.equals).toLowerCase());
+      }
       const key = f.sourceKey || "Placa Vehiculo";
       return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
     }
@@ -272,8 +275,11 @@ export default function ModulePage({ moduleKey }) {
           </DialogHeader>
           <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {mod.fields.map((f) => {
+              // Hide fields with autoGenerate (backend generates on create). Show as read-only on edit.
+              if (f.autoGenerate && !editing) return null;
               const value = f.derived ? derivedData[f.key] : formData[f.key];
               const isDerived = !!f.derived;
+              const isAuto = !!f.autoGenerate;
               return (
                 <div key={f.key} className={f.type === "textarea" ? "md:col-span-2 space-y-2" : "space-y-2"}>
                   <Label htmlFor={f.key} className="text-xs">
@@ -281,6 +287,8 @@ export default function ModulePage({ moduleKey }) {
                   </Label>
                   {isDerived ? (
                     <Input id={f.key} value={value ?? ""} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
+                  ) : isAuto ? (
+                    <Input id={f.key} value={formData[f.key] ?? ""} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
                   ) : f.type === "select" ? (
                     <Select
                       value={formData[f.key] ? String(formData[f.key]) : ""}

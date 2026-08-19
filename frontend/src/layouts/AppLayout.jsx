@@ -13,6 +13,7 @@ import {
   Route,
   Map,
   BellRing,
+  Car,
   Users,
   LogOut,
 } from "lucide-react";
@@ -67,6 +68,10 @@ export default function AppLayout() {
           <NavLink to="/mapa" className={navClass} data-testid="nav-mapa">
             <Map className="w-4 h-4" />
             <span>Mapa de Rutas</span>
+          </NavLink>
+          <NavLink to="/historial" className={navClass} data-testid="nav-historial">
+            <Car className="w-4 h-4" />
+            <span>Historial Vehículo</span>
           </NavLink>
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">
             Módulos

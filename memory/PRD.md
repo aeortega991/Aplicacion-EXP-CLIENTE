@@ -24,7 +24,11 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Dashboard con KPIs + 4 gráficos (Feb 2026)
 - Gestión de usuarios (solo admin) (Feb 2026)
 - Autorización basada en rol: usuarios `user` no pueden editar/eliminar
-- **Módulo Rutas (Feb 2026)**: 1009 rutas sembradas; formulario con selects dinámicos y cálculo automático de Km/Galones/Rendimiento/Gasto
+- **Módulo Rutas (Feb 2026)**: 1009 rutas sembradas; formulario con selects dinámicos y cálculo automático de Km/Galones/Rendimiento/Gasto. Vehículo dropdown filtra solo Status=Activo. Campo "Estado Vehículo" eliminado.
+- **Módulo Mantenimiento (Feb 2026)**: Nro auto-generado ascendente en el backend. Placa desde dropdown de Flota (solo Activo). Taller desde dropdown de Talleres.
+- **Módulo Conductores (Feb 2026)**: campo Correo agregado.
+- **Historial Vehicular (Feb 2026)**: `/historial` con dropdown de placas, ficha completa, 8 KPIs, secciones (Seguros, Mnto, Multas, Rutas) y export PDF vía reportlab.
+- **Emails de Mantenimiento (Feb 2026)**: `POST /api/alerts/send-mnto-emails` (admin) usa Resend (Emergent-managed) para enviar aviso al usuario asignado del vehículo con mnto vencido. Botón "Notificar por correo" en la página de Alertas.
 - **Dashboard extendido (Feb 2026)**: filtros de fecha + KPIs Galones/Rendimiento + gráfico combo Km-vs-Km/gal
 - **Alertas de Vencimiento (Feb 2026)**: página `/alertas` con seguros, mantenimientos e impuestos vencidos/próximos; filtro por horizonte (7/15/30/60/90 días) y tipo
 - **Exportar a Excel (Feb 2026)**: botón en cada módulo descarga .xlsx con todos los registros vía `/api/modules/{module}/export`

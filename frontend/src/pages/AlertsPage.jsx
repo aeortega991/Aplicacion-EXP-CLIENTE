@@ -4,7 +4,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, ShieldAlert, Wrench, FileText } from "lucide-react";
+import { AlertTriangle, ShieldAlert, Wrench, FileText, Mail } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 const severityStyles = {
   vencido: "bg-red-100 text-red-800 border-red-200",
@@ -15,13 +17,25 @@ const severityStyles = {
 const typeIcon = { Seguro: ShieldAlert, Mantenimiento: Wrench, Impuesto: FileText };
 
 export default function AlertsPage() {
+  const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [dias, setDias] = useState("30");
   const [tipo, setTipo] = useState("todos");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     api.get("/alerts", { params: { dias } }).then((r) => setData(r.data));
   }, [dias]);
+
+  const sendEmails = async () => {
+    setSending(true);
+    try {
+      const r = await api.post("/alerts/send-mnto-emails");
+      toast.success(`${r.data.total_enviados} correo(s) enviado(s), ${r.data.total_omitidos} omitido(s)`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Error al enviar correos");
+    } finally { setSending(false); }
+  };
 
   if (!data) return <div className="p-10 text-neutral-500">Cargando alertas…</div>;
 
@@ -63,6 +77,11 @@ export default function AlertsPage() {
               </SelectContent>
             </Select>
           </div>
+          {isAdmin && (
+            <Button onClick={sendEmails} disabled={sending} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="send-emails-btn">
+              <Mail className="w-4 h-4" /> {sending ? "Enviando…" : "Notificar por correo"}
+            </Button>
+          )}
         </div>
       </div>
 
