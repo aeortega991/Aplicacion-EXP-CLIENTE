@@ -1220,6 +1220,11 @@ class WarehouseIn(BaseModel):
     ciudad: str
     email: Optional[str] = None
 
+
+class BulkDeactivateIn(BaseModel):
+    tool_ids: List[str]
+    action: str = "deactivate"  # "deactivate" | "reactivate"
+
 async def _next_tool_code() -> str:
     docs = await db.tools.find({}, {"_id": 0, "tool_id": 1}).to_list(20000)
     max_n = 0
@@ -2195,6 +2200,248 @@ async def get_transfer_pdf(batch_id: str, user: dict = Depends(get_current_user)
         BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="traspaso_{batch_id[:8]}.pdf"'},
+    )
+
+
+# ============================================================================
+# Bulk operations & Warehouse inventory PDF & Technician history
+# ============================================================================
+@api.post("/tools/tools/bulk-deactivate")
+async def bulk_deactivate_tools(payload: BulkDeactivateIn, user: dict = Depends(get_current_user)):
+    if not payload.tool_ids:
+        raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
+    action = (payload.action or "deactivate").lower()
+    if action not in ("deactivate", "reactivate"):
+        raise HTTPException(status_code=400, detail="Acción inválida")
+    new_estado = "Inactiva" if action == "deactivate" else "Activa"
+    res = await db.tools.update_many({"id": {"$in": payload.tool_ids}}, {"$set": {"estado": new_estado}})
+    closed = 0
+    if new_estado == "Inactiva":
+        today = datetime.now(timezone.utc).date().isoformat()
+        r2 = await db.tool_assignments.update_many(
+            {"tool_id": {"$in": payload.tool_ids}, "estado": "Vigente"},
+            {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"]}},
+        )
+        closed = r2.modified_count
+    return {
+        "ok": True,
+        "matched": res.matched_count,
+        "modified": res.modified_count,
+        "estado_final": new_estado,
+        "assignments_cerradas": closed,
+    }
+
+def _build_inventory_pdf(warehouse: dict, tools_at_wh: list, generated_by: str) -> bytes:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from io import BytesIO
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
+    styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
+
+    story = []
+    story.append(Paragraph(f"Inventario de Bodega — {warehouse.get('ciudad','')}", styles["Hred"]))
+    story.append(Paragraph(
+        f"Bodega: <b>{escape(str(warehouse.get('nombre','')))}</b> · Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(generated_by)}",
+        styles["Small"],
+    ))
+    story.append(Spacer(1, 12))
+
+    total = 0.0
+    rows = [["ID", "Marca", "Modelo", "Serie", "F. Compra", "F. Ingreso Bodega", "Valor"]]
+    for t in tools_at_wh:
+        val = float(t.get("valor") or 0)
+        total += val
+        rows.append([
+            t.get("tool_code") or "-",
+            str(t.get("marca") or "-")[:22],
+            str(t.get("modelo") or "-")[:22],
+            str(t.get("serie") or "-")[:18],
+            str(t.get("fecha_compra") or "-")[:10],
+            str(t.get("fecha_ingreso") or "-")[:10],
+            f"${val:,.2f}",
+        ])
+    rows.append(["", "", "", "", "", "TOTAL", f"${total:,.2f}"])
+    tt = Table(rows, repeatRows=1, colWidths=[0.7*inch, 1.2*inch, 1.2*inch, 1.2*inch, 0.9*inch, 1.1*inch, 0.9*inch])
+    tt.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#D92D20")),
+        ("TEXTCOLOR", (-2,-1), (-1,-1), colors.white),
+        ("FONTNAME", (-2,-1), (-1,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+        ("ALIGN", (-1,1), (-1,-1), "RIGHT"),
+        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#E5E7EB")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-2), [colors.white, colors.HexColor("#F9FAFB")]),
+    ]))
+    story.append(tt)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Total de herramientas: <b>{len(tools_at_wh)}</b>", styles["Normal"]))
+    doc.build(story)
+    buf.seek(0)
+    return buf.getvalue()
+
+@api.get("/tools/warehouses/{warehouse_id}/inventory/pdf")
+async def get_warehouse_inventory_pdf(warehouse_id: str, user: dict = Depends(get_current_user)):
+    wh = await db.tool_warehouses.find_one({"id": warehouse_id}, {"_id": 0})
+    if not wh:
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
+    tools_at_wh = await list_tools_at_warehouse(warehouse_id, user)
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+    pdf_bytes = _build_inventory_pdf(wh, tools_at_wh, creator_name)
+    from io import BytesIO
+    city_slug = (wh.get("ciudad") or "bodega").lower().replace(" ", "_")
+    date_slug = datetime.now().strftime("%Y%m%d")
+    filename = f"inventario_{city_slug}_{date_slug}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+async def _get_tech_history(technician_id: str) -> Dict[str, Any]:
+    tech = await db.tool_technicians.find_one({"id": technician_id}, {"_id": 0})
+    if not tech:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    assignments = await db.tool_assignments.find(
+        {"technician_id": technician_id},
+        {"_id": 0},
+    ).sort("fecha_asignacion", -1).to_list(20000)
+    enriched = await _enrich_assignments(assignments)
+    # Stats
+    total_valor = 0.0
+    activas = 0
+    devueltas = 0
+    for a in enriched:
+        total_valor += float(a.get("tool_valor") or 0)
+        if a.get("estado") == "Vigente":
+            activas += 1
+        else:
+            devueltas += 1
+    return {
+        "technician": tech,
+        "assignments": enriched,
+        "stats": {
+            "total": len(enriched),
+            "activas": activas,
+            "devueltas": devueltas,
+            "valor_total": round(total_valor, 2),
+        },
+    }
+
+@api.get("/tools/technicians/{technician_id}/history")
+async def technician_history(technician_id: str, user: dict = Depends(get_current_user)):
+    return await _get_tech_history(technician_id)
+
+@api.get("/tools/technicians/{technician_id}/history/pdf")
+async def technician_history_pdf(technician_id: str, user: dict = Depends(get_current_user)):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from io import BytesIO
+
+    hist = await _get_tech_history(technician_id)
+    tech = hist["technician"]
+    stats = hist["stats"]
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
+    styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=12, spaceAfter=4, fontSize=12))
+
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+
+    story = []
+    story.append(Paragraph("Historial de Herramientas por Técnico", styles["Hred"]))
+    story.append(Paragraph(
+        f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(creator_name)}",
+        styles["Small"],
+    ))
+    story.append(Spacer(1, 10))
+
+    tech_data = [
+        ["Nombre", f"{tech.get('nombre','')} {tech.get('apellido','')}", "Código", tech.get("codigo","-")],
+        ["Cédula", tech.get("cedula") or "-", "Ciudad", tech.get("ciudad") or "-"],
+        ["Correo", tech.get("email") or "-", "", ""],
+    ]
+    t = Table(tech_data, colWidths=[1.3*inch, 2.3*inch, 1.1*inch, 2.0*inch])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F3F4F6")),
+        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
+        ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    story.append(t)
+
+    story.append(Paragraph("Resumen", styles["H2s"]))
+    kpis = [
+        ["Total asignaciones", str(stats["total"])],
+        ["Vigentes", str(stats["activas"])],
+        ["Devueltas", str(stats["devueltas"])],
+        ["Valor total ($)", f"${stats['valor_total']:,.2f}"],
+    ]
+    tk = Table(kpis, colWidths=[2.5*inch, 2.0*inch])
+    tk.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
+        ("ALIGN", (1,0), (1,-1), "RIGHT"),
+    ]))
+    story.append(tk)
+
+    story.append(Paragraph(f"Detalle de asignaciones ({stats['total']})", styles["H2s"]))
+    if not hist["assignments"]:
+        story.append(Paragraph("<i>Sin asignaciones registradas.</i>", styles["Normal"]))
+    else:
+        rows = [["F. Asig.", "F. Dev.", "ID", "Marca / Modelo", "Serie", "Valor", "Estado"]]
+        for a in hist["assignments"]:
+            rows.append([
+                str(a.get("fecha_asignacion") or "-")[:10],
+                str(a.get("fecha_devolucion") or "—")[:10],
+                a.get("tool_code") or "-",
+                (str(a.get("tool_marca") or "-") + " " + str(a.get("tool_modelo") or ""))[:26],
+                str(a.get("tool_serie") or "-")[:14],
+                f"${float(a.get('tool_valor') or 0):,.2f}",
+                str(a.get("estado") or "-")[:12],
+            ])
+        tab = Table(rows, repeatRows=1, colWidths=[0.85*inch, 0.85*inch, 0.7*inch, 1.9*inch, 1.1*inch, 0.9*inch, 0.9*inch])
+        tab.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#E5E7EB")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F9FAFB")]),
+            ("ALIGN", (5,1), (5,-1), "RIGHT"),
+        ]))
+        story.append(tab)
+
+    doc.build(story)
+    buf.seek(0)
+    tech_code = tech.get("codigo") or "tecnico"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="historial_{tech_code}.pdf"'},
     )
 
 

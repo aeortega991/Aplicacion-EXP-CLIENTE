@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Search, FlaskConical } from "lucide-react";
+import { Plus, Pencil, Search, FlaskConical, Ban, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
@@ -21,6 +23,8 @@ export default function HerramientasPage() {
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState("");
   const [seeding, setSeeding] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [bulkConfirm, setBulkConfirm] = useState(null); // {action: 'deactivate'|'reactivate'}
 
   const load = () => api.get("/tools/tools").then((r) => setRows(r.data)).catch((e) => toast.error(formatApiError(e)));
   useEffect(() => { load(); }, []);
@@ -68,6 +72,31 @@ export default function HerramientasPage() {
     finally { setSeeding(false); }
   };
 
+  const toggleRow = (id) => setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
+  const toggleAllFiltered = () => {
+    const ids = filtered.map((r) => r.id);
+    const allChecked = ids.every((id) => selected.includes(id));
+    if (allChecked) setSelected((s) => s.filter((x) => !ids.includes(x)));
+    else setSelected((s) => Array.from(new Set([...s, ...ids])));
+  };
+
+  const selectedRows = useMemo(() => rows.filter((r) => selected.includes(r.id)), [rows, selected]);
+  const canBulkDeactivate = selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Activa");
+  const canBulkReactivate = selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Inactiva");
+
+  const runBulk = async () => {
+    if (!bulkConfirm) return;
+    try {
+      const { data } = await api.post("/tools/tools/bulk-deactivate", { tool_ids: selected, action: bulkConfirm.action });
+      const label = bulkConfirm.action === "deactivate" ? "dadas de baja" : "reactivadas";
+      const extra = data.assignments_cerradas > 0 ? ` · ${data.assignments_cerradas} asignaciones cerradas` : "";
+      toast.success(`✓ ${data.modified} herramientas ${label}${extra}`);
+      setSelected([]);
+      setBulkConfirm(null);
+      load();
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
   return (
     <div className="p-8" data-testid="tools-inventario">
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -92,10 +121,40 @@ export default function HerramientasPage() {
         </div>
       </div>
 
+      {selected.length > 0 && (
+        <div className="mb-4 flex items-center gap-3 bg-neutral-900 text-white rounded-md px-4 py-2.5" data-testid="bulk-bar">
+          <span className="text-sm font-medium">{selected.length} seleccionada{selected.length !== 1 ? "s" : ""}</span>
+          <span className="text-neutral-400 text-xs">·</span>
+          <button onClick={() => setSelected([])} className="text-xs text-neutral-400 hover:text-white transition-colors">Limpiar</button>
+          <div className="ml-auto flex items-center gap-2">
+            {canBulkDeactivate && (
+              <Button size="sm" variant="destructive" onClick={() => setBulkConfirm({ action: "deactivate" })} className="gap-1.5" data-testid="bulk-deactivate-btn">
+                <Ban className="w-3.5 h-3.5" /> Dar de baja
+              </Button>
+            )}
+            {canBulkReactivate && (
+              <Button size="sm" onClick={() => setBulkConfirm({ action: "reactivate" })} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="bulk-reactivate-btn">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Reactivar
+              </Button>
+            )}
+            {!canBulkDeactivate && !canBulkReactivate && (
+              <span className="text-xs text-neutral-300">La selección mezcla estados; homogeniza tu selección para acción en lote</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <Card className="border border-neutral-200 shadow-none overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="bg-neutral-50">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={filtered.length > 0 && filtered.every((r) => selected.includes(r.id))}
+                  onCheckedChange={toggleAllFiltered}
+                  data-testid="bulk-toggle-all"
+                />
+              </TableHead>
               <TableHead className="text-xs uppercase tracking-wider">ID</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Marca</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Modelo</TableHead>
@@ -109,7 +168,10 @@ export default function HerramientasPage() {
           </TableHeader>
           <TableBody>
             {filtered.map((r) => (
-              <TableRow key={r.id} data-testid="tool-row">
+              <TableRow key={r.id} data-testid="tool-row" className={selected.includes(r.id) ? "bg-red-50/50" : ""}>
+                <TableCell>
+                  <Checkbox checked={selected.includes(r.id)} onCheckedChange={() => toggleRow(r.id)} data-testid={`bulk-row-${r.tool_id}`} />
+                </TableCell>
                 <TableCell className="font-mono">{r.tool_id}</TableCell>
                 <TableCell className="font-medium">{r.marca || "—"}</TableCell>
                 <TableCell>{r.modelo || "—"}</TableCell>
@@ -128,6 +190,31 @@ export default function HerramientasPage() {
           </TableBody>
         </Table>
       </Card>
+
+      <AlertDialog open={!!bulkConfirm} onOpenChange={(o) => !o && setBulkConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkConfirm?.action === "deactivate" ? "¿Dar de baja seleccionadas?" : "¿Reactivar seleccionadas?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkConfirm?.action === "deactivate"
+                ? `Se cambiará el estado a Inactiva de ${selected.length} herramienta(s). Si alguna tiene una asignación vigente, será cerrada automáticamente.`
+                : `Se reactivarán ${selected.length} herramienta(s) volviendo a estar disponibles para asignación.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={runBulk}
+              className={bulkConfirm?.action === "deactivate" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}
+              data-testid="bulk-confirm-btn"
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">

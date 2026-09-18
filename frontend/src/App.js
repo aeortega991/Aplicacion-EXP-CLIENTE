@@ -17,6 +17,8 @@ import TecnicosPage from "@/pages/tools/TecnicosPage";
 import AsignacionesPage from "@/pages/tools/AsignacionesPage";
 import DevolucionesPage from "@/pages/tools/DevolucionesPage";
 import TraspasosPage from "@/pages/tools/TraspasosPage";
+import BodegasPage from "@/pages/tools/BodegasPage";
+import HistorialTecnicoPage from "@/pages/tools/HistorialTecnicoPage";
 import { ReporteActual, ReporteHistorico } from "@/pages/tools/ReportesPage";
 import BajasPage from "@/pages/tools/BajasPage";
 import { MODULES } from "@/config/modules";
@@ -60,6 +62,8 @@ function App() {
             <Route path="asignaciones" element={<AsignacionesPage />} />
             <Route path="devoluciones" element={<DevolucionesPage />} />
             <Route path="traspasos" element={<TraspasosPage />} />
+            <Route path="bodegas" element={<BodegasPage />} />
+            <Route path="historial-tecnico" element={<HistorialTecnicoPage />} />
             <Route path="reporte-actual" element={<ReporteActual />} />
             <Route path="reporte-historico" element={<ReporteHistorico />} />
             <Route path="bajas" element={<BajasPage />} />
