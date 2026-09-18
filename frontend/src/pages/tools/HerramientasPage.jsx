@@ -7,17 +7,20 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Search } from "lucide-react";
+import { Plus, Pencil, Search, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 const empty = { marca: "", modelo: "", serie: "", descripcion: "", fecha_compra: "", valor: "" };
 
 export default function HerramientasPage() {
+  const { user } = useAuth();
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState("");
+  const [seeding, setSeeding] = useState(false);
 
   const load = () => api.get("/tools/tools").then((r) => setRows(r.data)).catch((e) => toast.error(formatApiError(e)));
   useEffect(() => { load(); }, []);
@@ -54,6 +57,17 @@ export default function HerramientasPage() {
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
+  const seedTest = async () => {
+    if (!window.confirm("Se agregarán 20 herramientas y 5 técnicos por ciudad con valores aleatorios. ¿Continuar?")) return;
+    setSeeding(true);
+    try {
+      const { data } = await api.post("/tools/seed-test-data");
+      toast.success(`✓ ${data.tools_creadas} herramientas · ${data.tecnicos_creados} técnicos · ${data.bodegas_totales} bodegas`);
+      load();
+    } catch (err) { toast.error(formatApiError(err)); }
+    finally { setSeeding(false); }
+  };
+
   return (
     <div className="p-8" data-testid="tools-inventario">
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -67,6 +81,11 @@ export default function HerramientasPage() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <Input placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-10 w-64" />
           </div>
+          {user?.role === "admin" && (
+            <Button onClick={seedTest} disabled={seeding} variant="outline" className="gap-2" data-testid="seed-test-btn">
+              <FlaskConical className="w-4 h-4" /> {seeding ? "Generando…" : "Datos de prueba"}
+            </Button>
+          )}
           <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tool-btn">
             <Plus className="w-4 h-4" /> Agregar
           </Button>

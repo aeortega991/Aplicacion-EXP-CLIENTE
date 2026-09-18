@@ -15,6 +15,8 @@ import ToolsDashboard from "@/pages/tools/ToolsDashboard";
 import HerramientasPage from "@/pages/tools/HerramientasPage";
 import TecnicosPage from "@/pages/tools/TecnicosPage";
 import AsignacionesPage from "@/pages/tools/AsignacionesPage";
+import DevolucionesPage from "@/pages/tools/DevolucionesPage";
+import TraspasosPage from "@/pages/tools/TraspasosPage";
 import { ReporteActual, ReporteHistorico } from "@/pages/tools/ReportesPage";
 import BajasPage from "@/pages/tools/BajasPage";
 import { MODULES } from "@/config/modules";
@@ -56,6 +58,8 @@ function App() {
             <Route path="inventario" element={<HerramientasPage />} />
             <Route path="tecnicos" element={<TecnicosPage />} />
             <Route path="asignaciones" element={<AsignacionesPage />} />
+            <Route path="devoluciones" element={<DevolucionesPage />} />
+            <Route path="traspasos" element={<TraspasosPage />} />
             <Route path="reporte-actual" element={<ReporteActual />} />
             <Route path="reporte-historico" element={<ReporteHistorico />} />
             <Route path="bajas" element={<BajasPage />} />

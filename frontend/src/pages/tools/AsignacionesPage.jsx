@@ -1,38 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { formatApiError, money } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { ClipboardCheck, RotateCcw, Mail, Download } from "lucide-react";
+import { ClipboardCheck, RotateCcw, Mail, Download, User, Warehouse } from "lucide-react";
 
 export default function AsignacionesPage() {
   const [tools, setTools] = useState([]);
   const [technicians, setTechnicians] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
   const [current, setCurrent] = useState([]);
+  const [destType, setDestType] = useState("technician");
   const [techId, setTechId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
   const [selectedTools, setSelectedTools] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [t, tech, cur] = await Promise.all([
+    const [t, tech, wh, cur] = await Promise.all([
       api.get("/tools/tools"),
       api.get("/tools/technicians"),
+      api.get("/tools/warehouses"),
       api.get("/tools/reports/current"),
     ]);
     setTools(t.data);
     setTechnicians(tech.data);
+    setWarehouses(wh.data);
     setCurrent(cur.data);
   };
   useEffect(() => { load(); }, []);
 
   const tech = technicians.find((t) => t.id === techId);
-  const assignedToolIds = new Set(current.map((c) => c.tool_id));
-  const availableTools = tools.filter((t) => t.estado === "Activa" && !assignedToolIds.has(t.id));
+  const warehouse = warehouses.find((w) => w.id === warehouseId);
+  const assignedToTechIds = new Set(current.map((c) => c.tool_id));
+  const availableTools = useMemo(
+    () => tools.filter((t) => t.estado === "Activa" && !assignedToTechIds.has(t.id)),
+    [tools, current]
+  );
 
   const toggleTool = (id) => {
     setSelectedTools((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
@@ -42,16 +50,24 @@ export default function AsignacionesPage() {
     else setSelectedTools(availableTools.map((t) => t.id));
   };
 
-  const selectedValue = tools.filter((t) => selectedTools.includes(t.id)).reduce((s, t) => s + Number(t.valor || 0), 0);
+  const selectedValue = tools
+    .filter((t) => selectedTools.includes(t.id))
+    .reduce((s, t) => s + Number(t.valor || 0), 0);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!techId) { toast.error("Selecciona un técnico"); return; }
+    if (destType === "technician" && !techId) { toast.error("Selecciona un técnico"); return; }
+    if (destType === "warehouse" && !warehouseId) { toast.error("Selecciona una bodega"); return; }
     if (selectedTools.length === 0) { toast.error("Selecciona al menos una herramienta"); return; }
     setSubmitting(true);
     try {
-      const { data } = await api.post("/tools/assignments/batch", { technician_id: techId, tool_ids: selectedTools });
-      // Download PDF
+      const payload = {
+        destination_type: destType,
+        tool_ids: selectedTools,
+        technician_id: destType === "technician" ? techId : null,
+        warehouse_id: destType === "warehouse" ? warehouseId : null,
+      };
+      const { data } = await api.post("/tools/assignments/batch", payload);
       const pdf = await api.get(`/tools/assignments/batch/${data.batch_id}/pdf`, { responseType: "blob" });
       const url = window.URL.createObjectURL(new Blob([pdf.data]));
       const link = document.createElement("a");
@@ -63,8 +79,9 @@ export default function AsignacionesPage() {
       window.URL.revokeObjectURL(url);
       const enviados = data.emails_enviados.length;
       const omitidos = data.emails_omitidos.length;
-      toast.success(`${data.total_herramientas} herramientas asignadas · PDF descargado · ${enviados} correo(s) enviado(s)${omitidos ? ` · ${omitidos} omitido(s)` : ""}`);
-      setTechId(""); setSelectedTools([]);
+      const destLabel = destType === "technician" ? "técnico" : "bodega";
+      toast.success(`${data.total_herramientas} herramientas asignadas a ${destLabel} · PDF descargado · ${enviados} correo(s) enviado(s)${omitidos ? ` · ${omitidos} omitido(s)` : ""}`);
+      setTechId(""); setWarehouseId(""); setSelectedTools([]);
       load();
     } catch (err) {
       toast.error(formatApiError(err));
@@ -98,29 +115,78 @@ export default function AsignacionesPage() {
     <div className="p-8 space-y-6" data-testid="tools-asignaciones">
       <div>
         <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Operación</div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2"><ClipboardCheck className="w-7 h-7 text-red-600" /> Asignar Herramientas</h1>
-        <p className="text-sm text-neutral-500 mt-1">Selecciona un técnico y una o varias herramientas. Al confirmar se genera un acta PDF y se envía por correo al técnico y al responsable.</p>
+        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <ClipboardCheck className="w-7 h-7 text-red-600" /> Asignar Herramientas
+        </h1>
+        <p className="text-sm text-neutral-500 mt-1">
+          Selecciona el destino (técnico o bodega interna) y una o varias herramientas. Al confirmar se genera un acta PDF y se envía por correo.
+        </p>
       </div>
 
       <Card className="p-6 border border-neutral-200 shadow-none">
         <form onSubmit={submit} className="space-y-5">
+          {/* Destination toggle */}
+          <div>
+            <Label className="mb-2 block">Destino</Label>
+            <div className="inline-flex rounded-md border border-neutral-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => { setDestType("technician"); setWarehouseId(""); }}
+                className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "technician" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
+                data-testid="dest-tech-btn"
+              >
+                <User className="w-4 h-4" /> Técnico
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDestType("warehouse"); setTechId(""); }}
+                className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "warehouse" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
+                data-testid="dest-wh-btn"
+              >
+                <Warehouse className="w-4 h-4" /> Bodega interna
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
             <div className="lg:col-span-2 space-y-2">
-              <Label>Técnico *</Label>
-              <Select value={techId} onValueChange={setTechId}>
-                <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder="Seleccionar técnico…" /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {technicians.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.codigo} — {t.nombre} {t.apellido} · {t.ciudad || "—"} {t.email ? `· ${t.email}` : ""}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {tech && (
-                <div className="text-xs text-neutral-600 mt-2 flex flex-wrap gap-4">
-                  {tech.cedula && <span><b>Cédula:</b> <span className="font-mono">{tech.cedula}</span></span>}
-                  {tech.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {tech.email}</span>}
-                  {!tech.email && <span className="text-amber-700">⚠ Sin email, no recibirá el acta</span>}
-                </div>
+              {destType === "technician" ? (
+                <>
+                  <Label>Técnico *</Label>
+                  <Select value={techId} onValueChange={setTechId}>
+                    <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder="Seleccionar técnico…" /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {technicians.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.codigo} — {t.nombre} {t.apellido} · {t.ciudad || "—"} {t.email ? `· ${t.email}` : ""}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {tech && (
+                    <div className="text-xs text-neutral-600 mt-2 flex flex-wrap gap-4">
+                      {tech.cedula && <span><b>Cédula:</b> <span className="font-mono">{tech.cedula}</span></span>}
+                      {tech.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {tech.email}</span>}
+                      {!tech.email && <span className="text-amber-700">⚠ Sin email, no recibirá el acta</span>}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Label>Bodega interna *</Label>
+                  <Select value={warehouseId} onValueChange={setWarehouseId}>
+                    <SelectTrigger data-testid="assign-wh-select"><SelectValue placeholder="Seleccionar bodega interna…" /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {warehouses.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {warehouse && (
+                    <div className="text-xs text-neutral-600 mt-2 flex flex-wrap gap-4">
+                      <span><b>Ciudad:</b> {warehouse.ciudad}</span>
+                      {warehouse.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {warehouse.email}</span>}
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="text-right">
@@ -165,7 +231,7 @@ export default function AsignacionesPage() {
       </Card>
 
       <div>
-        <h2 className="text-xl font-semibold mb-3">Asignaciones vigentes ({current.length})</h2>
+        <h2 className="text-xl font-semibold mb-3">Asignaciones vigentes a técnicos ({current.length})</h2>
         <Card className="border border-neutral-200 shadow-none overflow-hidden">
           <Table>
             <TableHeader>

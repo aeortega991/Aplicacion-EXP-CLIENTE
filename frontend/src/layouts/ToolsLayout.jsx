@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Wrench, Users, ClipboardCheck, FileBarChart, History, Ban, ArrowLeft, LogOut, LayoutDashboard } from "lucide-react";
+import { Wrench, Users, ClipboardCheck, FileBarChart, History, Ban, ArrowLeft, LogOut, LayoutDashboard, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -48,6 +48,12 @@ export default function ToolsLayout() {
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Operación</div>
           <NavLink to="/herramientas/asignaciones" className={navClass} data-testid="nav-asignaciones">
             <ClipboardCheck className="w-4 h-4" /> <span>Asignar</span>
+          </NavLink>
+          <NavLink to="/herramientas/devoluciones" className={navClass} data-testid="nav-devoluciones">
+            <RotateCcw className="w-4 h-4" /> <span>Devoluciones</span>
+          </NavLink>
+          <NavLink to="/herramientas/traspasos" className={navClass} data-testid="nav-traspasos">
+            <ArrowRightLeft className="w-4 h-4" /> <span>Traspasos</span>
           </NavLink>
           <NavLink to="/herramientas/reporte-actual" className={navClass} data-testid="nav-reporte-actual">
             <FileBarChart className="w-4 h-4" /> <span>Reporte actual</span>

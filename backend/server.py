@@ -1151,6 +1151,7 @@ async def seed_admin_and_data():
 @app.on_event("startup")
 async def _startup():
     await seed_admin_and_data()
+    await _seed_warehouses()
 
 @app.on_event("shutdown")
 async def _shutdown():
@@ -1196,8 +1197,28 @@ class AssignmentIn(BaseModel):
     technician_id: str
 
 class AssignmentBatchIn(BaseModel):
-    technician_id: str
+    technician_id: Optional[str] = None
+    warehouse_id: Optional[str] = None
     tool_ids: List[str]
+    destination_type: str = "technician"  # "technician" | "warehouse"
+
+
+class ReturnBatchIn(BaseModel):
+    technician_id: str
+    assignment_ids: List[str]  # ids of tool_assignments (Vigente) to return
+
+
+class TransferIn(BaseModel):
+    from_warehouse_id: str
+    to_warehouse_id: str
+    tool_ids: List[str]
+    notas: Optional[str] = None
+
+
+class WarehouseIn(BaseModel):
+    nombre: str
+    ciudad: str
+    email: Optional[str] = None
 
 async def _next_tool_code() -> str:
     docs = await db.tools.find({}, {"_id": 0, "tool_id": 1}).to_list(20000)
@@ -1292,10 +1313,13 @@ async def update_tech(tech_id: str, payload: TechUpdate, user: dict = Depends(ge
 async def _enrich_assignments(assignments: list) -> list:
     tools_map = {t["id"]: t for t in await db.tools.find({}, {"_id": 0}).to_list(5000)}
     techs_map = {t["id"]: t for t in await db.tool_technicians.find({}, {"_id": 0}).to_list(5000)}
+    wh_map = {w["id"]: w for w in await db.tool_warehouses.find({}, {"_id": 0}).to_list(500)}
     out = []
     for a in assignments:
         t = tools_map.get(a.get("tool_id"), {})
-        tech = techs_map.get(a.get("technician_id"), {})
+        tech = techs_map.get(a.get("technician_id"), {}) if a.get("technician_id") else {}
+        wh = wh_map.get(a.get("warehouse_id"), {}) if a.get("warehouse_id") else {}
+        ciudad = tech.get("ciudad") or wh.get("ciudad")
         out.append({
             **a,
             "tool_code": t.get("tool_id"),
@@ -1306,7 +1330,9 @@ async def _enrich_assignments(assignments: list) -> list:
             "technician_codigo": tech.get("codigo"),
             "technician_nombre": tech.get("nombre"),
             "technician_apellido": tech.get("apellido"),
-            "ciudad": tech.get("ciudad"),
+            "warehouse_nombre": wh.get("nombre"),
+            "warehouse_ciudad": wh.get("ciudad"),
+            "ciudad": ciudad,
         })
     return out
 
@@ -1348,7 +1374,8 @@ async def return_assignment(assignment_id: str, user: dict = Depends(get_current
         raise HTTPException(status_code=404, detail="Asignación vigente no encontrada")
     return {"ok": True}
 
-def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, creator_name: str) -> bytes:
+def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, creator_name: str, kind: str = "technician", title: Optional[str] = None) -> bytes:
+    """kind: 'technician' | 'warehouse' | 'return' | 'transfer'"""
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -1363,18 +1390,43 @@ def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, cre
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
     styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
 
+    if not title:
+        titles = {
+            "technician": "Acta de Entrega de Herramientas — Técnico",
+            "warehouse": "Acta de Entrega a Bodega",
+            "return": "Acta de Devolución de Herramientas",
+            "transfer": "Acta de Traspaso entre Bodegas",
+        }
+        title = titles.get(kind, "Acta de Herramientas")
+
     story = []
-    story.append(Paragraph("Acta de Entrega de Herramientas", styles["Hred"]))
+    story.append(Paragraph(title, styles["Hred"]))
     story.append(Paragraph(f"Batch: <b>{batch_id[:8]}</b> · Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(creator_name)}", styles["Small"]))
     story.append(Spacer(1, 12))
 
-    tech_data = [
-        ["Nombre completo", f"{technician.get('nombre','')} {technician.get('apellido','')}", "Código", technician.get("codigo","-")],
-        ["Cédula", technician.get("cedula") or "-", "Ciudad", technician.get("ciudad") or "-"],
-        ["Correo", technician.get("email") or "-", "", ""],
-    ]
-    t = Table(tech_data, colWidths=[1.3*inch, 2.3*inch, 1.1*inch, 2.0*inch])
-    t.setStyle(TableStyle([
+    # Recipient section varies by kind
+    if kind in ("technician", "return"):
+        header_label = "Técnico"
+        tech_data = [
+            [f"Nombre {header_label}", f"{recipient.get('nombre','')} {recipient.get('apellido','')}", "Código", recipient.get("codigo","-")],
+            ["Cédula", recipient.get("cedula") or "-", "Ciudad", recipient.get("ciudad") or "-"],
+            ["Correo", recipient.get("email") or "-", "", ""],
+        ]
+    elif kind == "warehouse":
+        tech_data = [
+            ["Bodega", recipient.get("nombre","-"), "Ciudad", recipient.get("ciudad") or "-"],
+            ["Correo bodega", recipient.get("email") or "-", "", ""],
+        ]
+    else:  # transfer -> recipient is {"from": wh, "to": wh}
+        f = recipient.get("from") or {}
+        t = recipient.get("to") or {}
+        tech_data = [
+            ["Bodega ORIGEN", f.get("nombre","-"), "Ciudad", f.get("ciudad") or "-"],
+            ["Bodega DESTINO", t.get("nombre","-"), "Ciudad", t.get("ciudad") or "-"],
+        ]
+
+    tbl = Table(tech_data, colWidths=[1.3*inch, 2.3*inch, 1.1*inch, 2.0*inch])
+    tbl.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F3F4F6")),
         ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F3F4F6")),
         ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
@@ -1384,8 +1436,15 @@ def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, cre
         ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),
         ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
     ]))
-    story.append(t)
-    story.append(Paragraph("Herramientas Entregadas", styles["H2s"]))
+    story.append(tbl)
+
+    section_titles = {
+        "technician": "Herramientas Entregadas",
+        "warehouse": "Herramientas Entregadas a Bodega",
+        "return": "Herramientas Devueltas",
+        "transfer": "Herramientas Trasladadas",
+    }
+    story.append(Paragraph(section_titles.get(kind, "Herramientas"), styles["H2s"]))
     rows = [["ID", "Marca", "Modelo", "Serie", "F. Compra", "Valor"]]
     total = 0.0
     for tool in tools_list:
@@ -1415,7 +1474,14 @@ def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, cre
     ]))
     story.append(tt)
     story.append(Spacer(1, 30))
-    firma = [["", ""], ["_____________________________", "_____________________________"], ["Entrega (Responsable)", f"Recibe: {technician.get('nombre','')} {technician.get('apellido','')}"]]
+    firma_labels = {
+        "technician": ("Entrega (Responsable)", f"Recibe: {recipient.get('nombre','')} {recipient.get('apellido','')}"),
+        "warehouse": ("Entrega (Responsable)", f"Recibe Bodega: {recipient.get('nombre','')}"),
+        "return": (f"Devuelve: {recipient.get('nombre','')} {recipient.get('apellido','')}", "Recibe Bodega (Responsable)"),
+        "transfer": (f"Origen: {(recipient.get('from') or {}).get('nombre','')}", f"Destino: {(recipient.get('to') or {}).get('nombre','')}"),
+    }
+    l1, l2 = firma_labels.get(kind, ("", ""))
+    firma = [["", ""], ["_____________________________", "_____________________________"], [l1, l2]]
     fs = Table(firma, colWidths=[3.2*inch, 3.2*inch])
     fs.setStyle(TableStyle([("FONTSIZE", (0,0), (-1,-1), 9), ("ALIGN", (0,0), (-1,-1), "CENTER")]))
     story.append(fs)
@@ -1428,9 +1494,24 @@ def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, cre
 async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depends(get_current_user)):
     if not payload.tool_ids:
         raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
-    tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
-    if not tech:
-        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    dest = (payload.destination_type or "technician").lower()
+    if dest not in ("technician", "warehouse"):
+        raise HTTPException(status_code=400, detail="Tipo de destino inválido")
+
+    tech = None
+    wh = None
+    if dest == "technician":
+        if not payload.technician_id:
+            raise HTTPException(status_code=400, detail="Selecciona un técnico")
+        tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
+        if not tech:
+            raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    else:
+        if not payload.warehouse_id:
+            raise HTTPException(status_code=400, detail="Selecciona una bodega")
+        wh = await db.tool_warehouses.find_one({"id": payload.warehouse_id}, {"_id": 0})
+        if not wh:
+            raise HTTPException(status_code=404, detail="Bodega no encontrada")
 
     tools_docs = []
     for tid in payload.tool_ids:
@@ -1441,39 +1522,56 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
             raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} está inactiva y no puede asignarse")
         active = await db.tool_assignments.find_one({"tool_id": tid, "estado": "Vigente"})
         if active:
-            raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} ya está asignada actualmente")
+            # Auto-close a warehouse-only active assignment (moving tool out of warehouse)
+            if active.get("technician_id"):
+                raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} ya está asignada a un técnico")
+            # else: warehouse assignment, close it silently
+            await db.tool_assignments.update_one(
+                {"id": active["id"]},
+                {"$set": {"estado": "Devuelta", "fecha_devolucion": datetime.now(timezone.utc).date().isoformat(), "_returned_by": user["username"]}},
+            )
         tools_docs.append(tool)
 
     batch_id = str(uuid.uuid4())
     today = datetime.now(timezone.utc).date().isoformat()
     for tool in tools_docs:
-        await db.tool_assignments.insert_one({
+        assignment_doc = {
             "id": str(uuid.uuid4()),
             "tool_id": tool["id"],
-            "technician_id": payload.technician_id,
+            "technician_id": payload.technician_id if dest == "technician" else None,
+            "warehouse_id": payload.warehouse_id if dest == "warehouse" else None,
+            "destination_type": dest,
             "batch_id": batch_id,
             "fecha_asignacion": today,
             "fecha_devolucion": None,
             "estado": "Vigente",
             "_created_by": user["username"],
-        })
+        }
+        await db.tool_assignments.insert_one(assignment_doc)
 
-    # Build PDF once, store the bytes hex-encoded
     creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    pdf_bytes = _build_assignment_pdf(tech, tools_docs, batch_id, creator.get("name") if creator else user.get("username"))
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+
+    if dest == "technician":
+        pdf_bytes = _build_assignment_pdf(tech, tools_docs, batch_id, creator_name, kind="technician")
+    else:
+        pdf_bytes = _build_assignment_pdf(wh, tools_docs, batch_id, creator_name, kind="warehouse",
+                                          title=f"Acta de Entrega a Bodega {wh.get('ciudad') or ''}".strip())
+
     await db.tool_assignment_batches.insert_one({
         "id": batch_id,
         "technician_id": payload.technician_id,
+        "warehouse_id": payload.warehouse_id,
+        "destination_type": dest,
         "tool_ids": payload.tool_ids,
         "fecha": today,
         "pdf_hex": pdf_bytes.hex(),
         "created_by": user["username"],
+        "kind": dest,
     })
 
-    # Send emails
-    emails_sent, emails_skipped = [], []
+    # Build email
     total = sum(float(t.get("valor") or 0) for t in tools_docs)
-    subject = f"Acta de entrega de herramientas — {tech.get('nombre')} {tech.get('apellido')}"
     tool_rows_html = "".join([
         f'<tr><td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("tool_id") or ""))}</td>'
         f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB">{escape(str(t.get("marca") or ""))} {escape(str(t.get("modelo") or ""))}</td>'
@@ -1481,15 +1579,28 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
         f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace;text-align:right">${float(t.get("valor") or 0):,.2f}</td></tr>'
         for t in tools_docs
     ])
+
+    if dest == "technician":
+        subject = f"Acta de entrega de herramientas — {tech.get('nombre')} {tech.get('apellido')}"
+        recipient_line = (
+            f'<p><strong>Técnico:</strong> {escape(str(tech.get("nombre") or ""))} {escape(str(tech.get("apellido") or ""))} — Código {escape(str(tech.get("codigo") or ""))}</p>'
+            f'<p><strong>Cédula:</strong> {escape(str(tech.get("cedula") or "—"))} · <strong>Ciudad:</strong> {escape(str(tech.get("ciudad") or "—"))}</p>'
+        )
+    else:
+        subject = f"Acta de entrega a Bodega {wh.get('ciudad') or ''} — {len(tools_docs)} herramientas"
+        recipient_line = (
+            f'<p><strong>Bodega:</strong> {escape(str(wh.get("nombre") or ""))}</p>'
+            f'<p><strong>Ciudad:</strong> {escape(str(wh.get("ciudad") or "—"))}</p>'
+        )
+
     html = (
         '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
         f'<tr><td style="padding:22px 24px;border-bottom:3px solid #D92D20">'
-        f'<h2 style="margin:0;color:#111827">Acta de entrega de herramientas</h2>'
+        f'<h2 style="margin:0;color:#111827">{"Acta de entrega a bodega" if dest == "warehouse" else "Acta de entrega de herramientas"}</h2>'
         f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
         '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
-        f'<p><strong>Técnico:</strong> {escape(str(tech.get("nombre") or ""))} {escape(str(tech.get("apellido") or ""))} — Código {escape(str(tech.get("codigo") or ""))}</p>'
-        f'<p><strong>Cédula:</strong> {escape(str(tech.get("cedula") or "—"))} · <strong>Ciudad:</strong> {escape(str(tech.get("ciudad") or "—"))}</p>'
-        f'<p><strong>Fecha:</strong> {today} · <strong>Entregado por:</strong> {escape(creator.get("name") if creator else user["username"])}</p>'
+        f'{recipient_line}'
+        f'<p><strong>Fecha:</strong> {today} · <strong>Entregado por:</strong> {escape(creator_name)}</p>'
         '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px">'
         '<thead><tr style="background:#111827;color:white">'
         '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th>'
@@ -1505,8 +1616,14 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
         '</td></tr></table>'
     )
     recipients = []
-    if tech.get("email"): recipients.append(("Técnico", tech["email"]))
-    if creator and creator.get("email"): recipients.append(("Responsable", creator["email"]))
+    if dest == "technician" and tech.get("email"):
+        recipients.append(("Técnico", tech["email"]))
+    if dest == "warehouse" and wh.get("email"):
+        recipients.append(("Bodega", wh["email"]))
+    if creator and creator.get("email"):
+        recipients.append(("Responsable", creator["email"]))
+
+    emails_sent, emails_skipped = [], []
     for who, addr in recipients:
         try:
             eid = await _send_email(to=addr, subject=subject, html=html)
@@ -1518,6 +1635,7 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
         "batch_id": batch_id,
         "total_herramientas": len(tools_docs),
         "valor_total": round(total, 2),
+        "destination_type": dest,
         "emails_enviados": emails_sent,
         "emails_omitidos": emails_skipped,
     }
@@ -1537,7 +1655,7 @@ async def get_batch_pdf(batch_id: str, user: dict = Depends(get_current_user)):
 
 @api.get("/tools/reports/current")
 async def report_current(ciudad: Optional[str] = None, technician_id: Optional[str] = None, user: dict = Depends(get_current_user)):
-    query = {"estado": "Vigente"}
+    query = {"estado": "Vigente", "destination_type": {"$ne": "warehouse"}}
     if technician_id: query["technician_id"] = technician_id
     docs = await db.tool_assignments.find(query, {"_id": 0}).to_list(5000)
     enriched = await _enrich_assignments(docs)
@@ -1547,7 +1665,7 @@ async def report_current(ciudad: Optional[str] = None, technician_id: Optional[s
 
 @api.get("/tools/reports/history")
 async def report_history(ciudad: Optional[str] = None, user: dict = Depends(get_current_user)):
-    docs = await db.tool_assignments.find({}, {"_id": 0}).sort("fecha_asignacion", -1).to_list(20000)
+    docs = await db.tool_assignments.find({"destination_type": {"$ne": "warehouse"}}, {"_id": 0}).sort("fecha_asignacion", -1).to_list(20000)
     enriched = await _enrich_assignments(docs)
     if ciudad:
         enriched = [e for e in enriched if _norm(e.get("ciudad")) == _norm(ciudad)]
@@ -1557,22 +1675,37 @@ async def report_history(ciudad: Optional[str] = None, user: dict = Depends(get_
 async def tools_dashboard(user: dict = Depends(get_current_user)):
     tools = await db.tools.find({}, {"_id": 0}).to_list(5000)
     techs = {t["id"]: t for t in await db.tool_technicians.find({}, {"_id": 0}).to_list(5000)}
+    warehouses = {w["id"]: w for w in await db.tool_warehouses.find({}, {"_id": 0}).to_list(500)}
     assignments = await db.tool_assignments.find({}, {"_id": 0}).sort("fecha_asignacion", -1).to_list(20000)
 
-    # tool_id -> most recent technician (any status)
-    tool_to_tech: Dict[str, str] = {}
+    # For every tool, look up its most recent Vigente assignment (that determines its city).
+    # If none Vigente, fall back to most recent of any state.
+    tool_active: Dict[str, dict] = {}
+    tool_last: Dict[str, dict] = {}
     for a in assignments:
         tid = a.get("tool_id")
-        if tid and tid not in tool_to_tech:
-            tool_to_tech[tid] = a.get("technician_id")
+        if not tid: continue
+        if a.get("estado") == "Vigente" and tid not in tool_active:
+            tool_active[tid] = a
+        if tid not in tool_last:
+            tool_last[tid] = a
+
+    def _tool_city(t):
+        a = tool_active.get(t.get("id")) or tool_last.get(t.get("id")) or {}
+        if a.get("technician_id"):
+            tech = techs.get(a["technician_id"])
+            return (tech.get("ciudad") if tech else None) or "Sin ciudad"
+        if a.get("warehouse_id"):
+            wh = warehouses.get(a["warehouse_id"])
+            return (wh.get("ciudad") if wh else None) or "Sin ciudad"
+        return "Sin ciudad"
 
     per_city: Dict[str, Dict[str, float]] = {}
     total_activa = 0.0
     total_inactiva = 0.0
     for t in tools:
         val = float(t.get("valor") or 0)
-        tech = techs.get(tool_to_tech.get(t.get("id")))
-        ciudad = (tech.get("ciudad") if tech else None) or "Sin ciudad"
+        ciudad = _tool_city(t)
         estado = t.get("estado") or "Activa"
         if ciudad not in per_city:
             per_city[ciudad] = {"activa": 0.0, "inactiva": 0.0, "activa_count": 0, "inactiva_count": 0}
@@ -1608,6 +1741,461 @@ async def tools_dashboard(user: dict = Depends(get_current_user)):
         "ciudades": ciudades,
     }
 
+
+
+# ============================================================================
+# Warehouses (bodegas internas por ciudad)
+# ============================================================================
+async def _seed_warehouses():
+    """Ensure one warehouse per city present in flota + tool_technicians."""
+    cities_flota = await db.flota.distinct("Ubicacion")
+    cities_tech = await db.tool_technicians.distinct("ciudad")
+    all_cities = set()
+    for c in list(cities_flota) + list(cities_tech):
+        if not c: continue
+        s = str(c).strip()
+        if s: all_cities.add(s)
+    default_email = os.environ.get("WAREHOUSE_EMAIL") or None
+    for ciudad in all_cities:
+        exists = await db.tool_warehouses.find_one({"ciudad": ciudad})
+        if exists: continue
+        await db.tool_warehouses.insert_one({
+            "id": str(uuid.uuid4()),
+            "nombre": f"Bodega {ciudad.title()}",
+            "ciudad": ciudad,
+            "email": default_email,
+            "_created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+async def _get_or_create_warehouse_for_city(ciudad: str) -> Optional[dict]:
+    if not ciudad: return None
+    ciudad = str(ciudad).strip()
+    wh = await db.tool_warehouses.find_one({"ciudad": ciudad}, {"_id": 0})
+    if wh: return wh
+    default_email = os.environ.get("WAREHOUSE_EMAIL") or None
+    doc = {
+        "id": str(uuid.uuid4()),
+        "nombre": f"Bodega {ciudad.title()}",
+        "ciudad": ciudad,
+        "email": default_email,
+        "_created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.tool_warehouses.insert_one(doc)
+    return doc
+
+@api.get("/tools/warehouses")
+async def list_warehouses(user: dict = Depends(get_current_user)):
+    docs = await db.tool_warehouses.find({}, {"_id": 0}).sort("ciudad", 1).to_list(500)
+    return docs
+
+@api.get("/tools/warehouses/{warehouse_id}/tools")
+async def list_tools_at_warehouse(warehouse_id: str, user: dict = Depends(get_current_user)):
+    """Return all tools currently sitting at the given warehouse (Vigente warehouse assignments)."""
+    assignments = await db.tool_assignments.find({
+        "warehouse_id": warehouse_id,
+        "destination_type": "warehouse",
+        "estado": "Vigente",
+    }, {"_id": 0}).to_list(5000)
+    if not assignments:
+        return []
+    tools_map = {t["id"]: t for t in await db.tools.find({}, {"_id": 0}).to_list(5000)}
+    out = []
+    for a in assignments:
+        t = tools_map.get(a.get("tool_id"))
+        if not t: continue
+        out.append({
+            "assignment_id": a["id"],
+            "tool_id": t["id"],
+            "tool_code": t.get("tool_id"),
+            "marca": t.get("marca"),
+            "modelo": t.get("modelo"),
+            "serie": t.get("serie"),
+            "valor": t.get("valor"),
+            "estado": t.get("estado"),
+            "fecha_ingreso": a.get("fecha_asignacion"),
+        })
+    return out
+
+# ============================================================================
+# Seed test data
+# ============================================================================
+@api.post("/tools/seed-test-data")
+async def seed_test_data(user: dict = Depends(require_admin)):
+    """Generate 20 random tools and 5 technicians per known city."""
+    import random
+    brands = ["DEWALT", "MAKITA", "STANLEY", "BOSCH", "MILWAUKEE", "BLACK & DECKER", "TRUPER", "HILTI", "RIDGID", "METABO"]
+    models = ["Taladro percutor", "Esmeril angular", "Sierra circular", "Atornillador eléctrico",
+              "Compresor 2HP", "Soldadora MIG", "Pulidora", "Martillo demoledor", "Sierra caladora",
+              "Rotomartillo SDS", "Llave de impacto", "Multímetro digital", "Lijadora orbital",
+              "Ingletadora", "Sopladora industrial", "Gata hidráulica", "Generador portátil"]
+    now = datetime.now(timezone.utc)
+
+    tools_created = []
+    for _ in range(20):
+        marca = random.choice(brands)
+        modelo = random.choice(models)
+        serie = f"{marca[:3].upper()}-{random.randint(10000, 999999)}"
+        valor = round(random.uniform(45, 850), 2)
+        fecha_compra = (now - timedelta(days=random.randint(30, 720))).date().isoformat()
+        code = await _next_tool_code()
+        doc = {
+            "id": str(uuid.uuid4()),
+            "tool_id": code,
+            "marca": marca,
+            "modelo": modelo,
+            "serie": serie,
+            "descripcion": f"{modelo} {marca} (seed test)",
+            "fecha_compra": fecha_compra,
+            "valor": valor,
+            "estado": "Activa",
+            "_created_by": user["username"],
+            "_created_at": now.isoformat(),
+            "_seed": True,
+        }
+        await db.tools.insert_one(doc)
+        tools_created.append(code)
+
+    # 5 techs per city
+    cities = await db.flota.distinct("Ubicacion")
+    cities = sorted({str(c).strip() for c in cities if c and str(c).strip()})
+    nombres_m = ["Carlos", "Luis", "Jorge", "Andrés", "Pablo", "Diego", "Fernando", "Javier", "Mauricio", "Alejandro"]
+    nombres_f = ["María", "Ana", "Lucía", "Carmen", "Verónica", "Patricia", "Silvia", "Laura", "Gabriela", "Andrea"]
+    apellidos = ["García", "Rodríguez", "López", "Martínez", "Pérez", "Sánchez", "Vega", "Torres", "Ramírez", "Castro",
+                 "Jiménez", "Morales", "Ortega", "Vargas", "Herrera", "Flores", "Rivera", "Cedeño", "Zambrano", "Espinoza"]
+
+    techs_created = 0
+    for ciudad in cities:
+        for _ in range(5):
+            nombre = random.choice(nombres_m + nombres_f)
+            apellido = random.choice(apellidos)
+            # Ensure unique code
+            for _try in range(30):
+                codigo = f"TC-{random.randint(1000, 99999)}"
+                if not await db.tool_technicians.find_one({"codigo": codigo}):
+                    break
+            cedula = "".join(str(random.randint(0, 9)) for _ in range(10))
+            email = f"{nombre.lower().replace(' ','')}.{apellido.lower().replace(' ','')}{random.randint(1,99)}@indurama.test"
+            await db.tool_technicians.insert_one({
+                "id": str(uuid.uuid4()),
+                "nombre": nombre,
+                "apellido": apellido,
+                "codigo": codigo,
+                "ciudad": ciudad,
+                "email": email,
+                "cedula": cedula,
+                "_created_at": now.isoformat(),
+                "_seed": True,
+            })
+            techs_created += 1
+
+    # Ensure warehouses exist for all cities
+    await _seed_warehouses()
+    warehouses_total = await db.tool_warehouses.count_documents({})
+
+    return {
+        "ok": True,
+        "tools_creadas": len(tools_created),
+        "tecnicos_creados": techs_created,
+        "ciudades_procesadas": len(cities),
+        "bodegas_totales": warehouses_total,
+        "tools_codes": tools_created,
+    }
+
+# ============================================================================
+# Returns (devolución: técnico -> bodega de su ciudad)
+# ============================================================================
+def _build_return_pdf(technician: dict, warehouse: dict, tools_list: list, batch_id: str, creator_name: str) -> bytes:
+    return _build_assignment_pdf(
+        {**technician, "_wh_nombre": warehouse.get("nombre"), "_wh_ciudad": warehouse.get("ciudad")},
+        tools_list, batch_id, creator_name, kind="return",
+        title=f"Acta de Devolución a Bodega {warehouse.get('ciudad') or ''}".strip(),
+    )
+
+@api.post("/tools/returns")
+async def create_return_batch(payload: ReturnBatchIn, user: dict = Depends(get_current_user)):
+    if not payload.assignment_ids:
+        raise HTTPException(status_code=400, detail="Selecciona al menos una asignación a devolver")
+    tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
+    if not tech:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    if not tech.get("ciudad"):
+        raise HTTPException(status_code=400, detail="El técnico no tiene ciudad asignada; asigne una ciudad antes de devolver")
+
+    # Validate all assignments belong to the tech and are Vigente technician-type
+    assignments = []
+    tools_docs = []
+    for aid in payload.assignment_ids:
+        a = await db.tool_assignments.find_one({"id": aid}, {"_id": 0})
+        if not a or a.get("estado") != "Vigente":
+            raise HTTPException(status_code=400, detail=f"Asignación {aid[:8]} no está vigente")
+        if a.get("technician_id") != tech["id"]:
+            raise HTTPException(status_code=400, detail="Una asignación no corresponde al técnico seleccionado")
+        assignments.append(a)
+        tool = await db.tools.find_one({"id": a["tool_id"]}, {"_id": 0})
+        if tool:
+            tools_docs.append(tool)
+
+    # Get/create warehouse for tech city
+    wh = await _get_or_create_warehouse_for_city(tech["ciudad"])
+    if not wh:
+        raise HTTPException(status_code=400, detail="No se pudo determinar/crear bodega para la ciudad")
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    batch_id = str(uuid.uuid4())
+    # Close each tech assignment and open a warehouse assignment
+    for a, tool in zip(assignments, tools_docs):
+        await db.tool_assignments.update_one(
+            {"id": a["id"]},
+            {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"], "return_batch_id": batch_id}},
+        )
+        await db.tool_assignments.insert_one({
+            "id": str(uuid.uuid4()),
+            "tool_id": tool["id"],
+            "technician_id": None,
+            "warehouse_id": wh["id"],
+            "destination_type": "warehouse",
+            "batch_id": batch_id,
+            "fecha_asignacion": today,
+            "fecha_devolucion": None,
+            "estado": "Vigente",
+            "_created_by": user["username"],
+            "source": "return",
+        })
+
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+    pdf_bytes = _build_return_pdf(tech, wh, tools_docs, batch_id, creator_name)
+    await db.tool_return_batches.insert_one({
+        "id": batch_id,
+        "technician_id": tech["id"],
+        "warehouse_id": wh["id"],
+        "tool_ids": [t["id"] for t in tools_docs],
+        "fecha": today,
+        "pdf_hex": pdf_bytes.hex(),
+        "created_by": user["username"],
+    })
+
+    # Emails
+    total = sum(float(t.get("valor") or 0) for t in tools_docs)
+    tool_rows_html = "".join([
+        f'<tr><td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("tool_id") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB">{escape(str(t.get("marca") or ""))} {escape(str(t.get("modelo") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("serie") or "-"))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace;text-align:right">${float(t.get("valor") or 0):,.2f}</td></tr>'
+        for t in tools_docs
+    ])
+    subject = f"Acta de devolución — {tech.get('nombre')} {tech.get('apellido')} → Bodega {wh.get('ciudad')}"
+    html = (
+        '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
+        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #16A34A">'
+        f'<h2 style="margin:0;color:#111827">Acta de devolución a bodega</h2>'
+        f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
+        '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
+        f'<p><strong>Técnico:</strong> {escape(str(tech.get("nombre") or ""))} {escape(str(tech.get("apellido") or ""))} — Código {escape(str(tech.get("codigo") or ""))}</p>'
+        f'<p><strong>Cédula:</strong> {escape(str(tech.get("cedula") or "—"))} · <strong>Ciudad:</strong> {escape(str(tech.get("ciudad") or "—"))}</p>'
+        f'<p><strong>Bodega destino:</strong> {escape(str(wh.get("nombre") or ""))} — {escape(str(wh.get("ciudad") or ""))}</p>'
+        f'<p><strong>Fecha:</strong> {today} · <strong>Recibido por:</strong> {escape(creator_name)}</p>'
+        '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px">'
+        '<thead><tr style="background:#111827;color:white">'
+        '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th>'
+        '<th style="padding:6px 8px;text-align:left">Serie</th><th style="padding:6px 8px;text-align:right">Valor</th></tr></thead>'
+        f'<tbody>{tool_rows_html}'
+        f'<tr><td colspan="3" style="padding:8px;text-align:right;background:#16A34A;color:white;font-weight:bold">TOTAL</td>'
+        f'<td style="padding:8px;text-align:right;background:#16A34A;color:white;font-weight:bold;font-family:monospace">${total:,.2f}</td></tr>'
+        '</tbody></table>'
+        '</td></tr>'
+        '<tr><td style="padding:14px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+        f'Este correo fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca solicitamos contraseñas ni datos de tarjeta por correo.'
+        '</td></tr></table>'
+    )
+    recipients = []
+    if tech.get("email"): recipients.append(("Técnico", tech["email"]))
+    if wh.get("email"): recipients.append(("Bodega", wh["email"]))
+    if creator and creator.get("email"): recipients.append(("Responsable", creator["email"]))
+    emails_sent, emails_skipped = [], []
+    for who, addr in recipients:
+        try:
+            eid = await _send_email(to=addr, subject=subject, html=html)
+            emails_sent.append({"tipo": who, "email": addr, "email_id": eid})
+        except Exception as e:
+            emails_skipped.append({"tipo": who, "email": addr, "error": str(e)})
+
+    return {
+        "batch_id": batch_id,
+        "total_herramientas": len(tools_docs),
+        "valor_total": round(total, 2),
+        "warehouse_id": wh["id"],
+        "warehouse_nombre": wh["nombre"],
+        "emails_enviados": emails_sent,
+        "emails_omitidos": emails_skipped,
+    }
+
+@api.get("/tools/returns/{batch_id}/pdf")
+async def get_return_pdf(batch_id: str, user: dict = Depends(get_current_user)):
+    b = await db.tool_return_batches.find_one({"id": batch_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Acta no encontrada")
+    pdf_bytes = bytes.fromhex(b["pdf_hex"])
+    from io import BytesIO
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="devolucion_{batch_id[:8]}.pdf"'},
+    )
+
+# ============================================================================
+# Transfers (bodega origen -> bodega destino)
+# ============================================================================
+@api.post("/tools/transfers")
+async def create_transfer(payload: TransferIn, user: dict = Depends(get_current_user)):
+    if not payload.tool_ids:
+        raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
+    if payload.from_warehouse_id == payload.to_warehouse_id:
+        raise HTTPException(status_code=400, detail="La bodega origen y destino no pueden ser la misma")
+    src = await db.tool_warehouses.find_one({"id": payload.from_warehouse_id}, {"_id": 0})
+    dst = await db.tool_warehouses.find_one({"id": payload.to_warehouse_id}, {"_id": 0})
+    if not src or not dst:
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
+
+    tools_docs = []
+    active_assignments = []
+    for tid in payload.tool_ids:
+        tool = await db.tools.find_one({"id": tid}, {"_id": 0})
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Herramienta no encontrada: {tid}")
+        a = await db.tool_assignments.find_one({
+            "tool_id": tid, "estado": "Vigente", "warehouse_id": src["id"], "destination_type": "warehouse",
+        }, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} no está en la bodega origen")
+        tools_docs.append(tool)
+        active_assignments.append(a)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    batch_id = str(uuid.uuid4())
+    for a, tool in zip(active_assignments, tools_docs):
+        await db.tool_assignments.update_one(
+            {"id": a["id"]},
+            {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"], "transfer_batch_id": batch_id}},
+        )
+        await db.tool_assignments.insert_one({
+            "id": str(uuid.uuid4()),
+            "tool_id": tool["id"],
+            "technician_id": None,
+            "warehouse_id": dst["id"],
+            "destination_type": "warehouse",
+            "batch_id": batch_id,
+            "fecha_asignacion": today,
+            "fecha_devolucion": None,
+            "estado": "Vigente",
+            "_created_by": user["username"],
+            "source": "transfer",
+        })
+
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+    pdf_bytes = _build_assignment_pdf(
+        {"from": src, "to": dst}, tools_docs, batch_id, creator_name, kind="transfer",
+        title=f"Acta de Traspaso — {src.get('ciudad')} → {dst.get('ciudad')}",
+    )
+    await db.tool_transfers.insert_one({
+        "id": batch_id,
+        "from_warehouse_id": src["id"],
+        "to_warehouse_id": dst["id"],
+        "from_ciudad": src.get("ciudad"),
+        "to_ciudad": dst.get("ciudad"),
+        "tool_ids": [t["id"] for t in tools_docs],
+        "notas": (payload.notas or None),
+        "fecha": today,
+        "pdf_hex": pdf_bytes.hex(),
+        "created_by": user["username"],
+    })
+
+    # Emails: admin + bodega genérica (WAREHOUSE_EMAIL) and both warehouses' emails if present
+    total = sum(float(t.get("valor") or 0) for t in tools_docs)
+    tool_rows_html = "".join([
+        f'<tr><td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("tool_id") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB">{escape(str(t.get("marca") or ""))} {escape(str(t.get("modelo") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("serie") or "-"))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace;text-align:right">${float(t.get("valor") or 0):,.2f}</td></tr>'
+        for t in tools_docs
+    ])
+    subject = f"Acta de traspaso Bodega {src.get('ciudad')} → Bodega {dst.get('ciudad')} · {len(tools_docs)} herramientas"
+    html = (
+        '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
+        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #2563EB">'
+        f'<h2 style="margin:0;color:#111827">Acta de traspaso entre bodegas</h2>'
+        f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
+        '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
+        f'<p><strong>Origen:</strong> {escape(str(src.get("nombre") or ""))} — {escape(str(src.get("ciudad") or ""))}</p>'
+        f'<p><strong>Destino:</strong> {escape(str(dst.get("nombre") or ""))} — {escape(str(dst.get("ciudad") or ""))}</p>'
+        f'<p><strong>Fecha:</strong> {today} · <strong>Autorizado por:</strong> {escape(creator_name)}</p>'
+        + (f'<p><strong>Notas:</strong> {escape(str(payload.notas or ""))}</p>' if payload.notas else "")
+        + '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px">'
+        '<thead><tr style="background:#111827;color:white">'
+        '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th>'
+        '<th style="padding:6px 8px;text-align:left">Serie</th><th style="padding:6px 8px;text-align:right">Valor</th></tr></thead>'
+        f'<tbody>{tool_rows_html}'
+        f'<tr><td colspan="3" style="padding:8px;text-align:right;background:#2563EB;color:white;font-weight:bold">TOTAL</td>'
+        f'<td style="padding:8px;text-align:right;background:#2563EB;color:white;font-weight:bold;font-family:monospace">${total:,.2f}</td></tr>'
+        '</tbody></table>'
+        '</td></tr>'
+        '<tr><td style="padding:14px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+        f'Este correo fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca solicitamos contraseñas ni datos de tarjeta por correo.'
+        '</td></tr></table>'
+    )
+    recipients = []
+    if src.get("email"): recipients.append(("Bodega Origen", src["email"]))
+    if dst.get("email"): recipients.append(("Bodega Destino", dst["email"]))
+    if creator and creator.get("email"): recipients.append(("Responsable", creator["email"]))
+    generic = os.environ.get("WAREHOUSE_EMAIL")
+    if generic and not any(r[1].lower() == generic.lower() for r in recipients):
+        recipients.append(("Bodega General", generic))
+
+    # Dedupe by email
+    seen = set()
+    dedup_recipients = []
+    for who, addr in recipients:
+        low = (addr or "").lower()
+        if not low or low in seen: continue
+        seen.add(low)
+        dedup_recipients.append((who, addr))
+
+    emails_sent, emails_skipped = [], []
+    for who, addr in dedup_recipients:
+        try:
+            eid = await _send_email(to=addr, subject=subject, html=html)
+            emails_sent.append({"tipo": who, "email": addr, "email_id": eid})
+        except Exception as e:
+            emails_skipped.append({"tipo": who, "email": addr, "error": str(e)})
+
+    return {
+        "batch_id": batch_id,
+        "total_herramientas": len(tools_docs),
+        "valor_total": round(total, 2),
+        "from_warehouse": {"id": src["id"], "ciudad": src.get("ciudad")},
+        "to_warehouse": {"id": dst["id"], "ciudad": dst.get("ciudad")},
+        "emails_enviados": emails_sent,
+        "emails_omitidos": emails_skipped,
+    }
+
+@api.get("/tools/transfers")
+async def list_transfers(user: dict = Depends(get_current_user)):
+    docs = await db.tool_transfers.find({}, {"_id": 0, "pdf_hex": 0}).sort("fecha", -1).to_list(2000)
+    return docs
+
+@api.get("/tools/transfers/{batch_id}/pdf")
+async def get_transfer_pdf(batch_id: str, user: dict = Depends(get_current_user)):
+    b = await db.tool_transfers.find_one({"id": batch_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Acta no encontrada")
+    pdf_bytes = bytes.fromhex(b["pdf_hex"])
+    from io import BytesIO
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="traspaso_{batch_id[:8]}.pdf"'},
+    )
 
 
 app.include_router(api)
