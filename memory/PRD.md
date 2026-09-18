@@ -33,10 +33,19 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - **Alertas de Vencimiento (Feb 2026)**: página `/alertas` con seguros, mantenimientos e impuestos vencidos/próximos; filtro por horizonte (7/15/30/60/90 días) y tipo
 - **Exportar a Excel (Feb 2026)**: botón en cada módulo descarga .xlsx con todos los registros vía `/api/modules/{module}/export`
 - **Mapa de Rutas (Feb 2026)**: página `/mapa` con OpenStreetMap + react-leaflet 5.x; 26 ciudades del Ecuador geocodificadas, círculos proporcionales a viajes, polilíneas entre ciudades con grosor por frecuencia, filtros de fecha
+- **Hub + Módulo Herramientas (Feb 2026)**: nueva app modular con Hub principal (Vehículos vs Herramientas). Colecciones: `tools`, `tool_technicians`, `tool_assignments`, `tool_assignment_batches`. CRUD completo, dashboard por ciudad, asignaciones múltiples con PDF y correo automático.
+- **Bodegas + Devoluciones + Traspasos (Feb 2026)**: Auto-seeding de bodegas (1 por ciudad). Asignación puede ir a Técnico O Bodega Interna. Módulo Devoluciones (tech → bodega ciudad, con PDF + email). Módulo Traspasos entre bodegas de distintas ciudades (con PDF + email a bodega origen/destino + admin + WAREHOUSE_EMAIL). Endpoint seed `/api/tools/seed-test-data` (admin) genera 20 herramientas random + 5 técnicos por ciudad. Reportes de asignaciones filtran solo tech (excluyen warehouse). Nuevas colecciones: `tool_warehouses`, `tool_return_batches`, `tool_transfers`.
 
 ## Test Credentials
 - Admin: `aeortega` / `admin123`
 - User: `operador` / `operador123`
+
+## Backlog / Roadmap
+- P2 (refactor sugerido por code review): Dividir `server.py` (>2200 líneas) en routers separados (`routers/tools.py`, `routers/fleet.py`)
+- P2: Extraer helper compartido `_build_tools_email_html()` (código HTML de emails duplicado en 3 endpoints)
+- P2: Migrar PDFs de hex-in-mongo a GridFS o filesystem
+- P1: Bulk edit/eliminar en tablas de flota (ya solicitado antes, pendiente)
+- P2: Filtro opcional por warehouse_id en `/tools/reports/current`
 
 ## Backlog / Next
 - P1: Filtros avanzados por columna + exportar a Excel/PDF
