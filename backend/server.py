@@ -1356,6 +1356,62 @@ async def report_history(ciudad: Optional[str] = None, user: dict = Depends(get_
         enriched = [e for e in enriched if _norm(e.get("ciudad")) == _norm(ciudad)]
     return enriched
 
+@api.get("/tools/dashboard")
+async def tools_dashboard(user: dict = Depends(get_current_user)):
+    tools = await db.tools.find({}, {"_id": 0}).to_list(5000)
+    techs = {t["id"]: t for t in await db.tool_technicians.find({}, {"_id": 0}).to_list(5000)}
+    assignments = await db.tool_assignments.find({}, {"_id": 0}).sort("fecha_asignacion", -1).to_list(20000)
+
+    # tool_id -> most recent technician (any status)
+    tool_to_tech: Dict[str, str] = {}
+    for a in assignments:
+        tid = a.get("tool_id")
+        if tid and tid not in tool_to_tech:
+            tool_to_tech[tid] = a.get("technician_id")
+
+    per_city: Dict[str, Dict[str, float]] = {}
+    total_activa = 0.0
+    total_inactiva = 0.0
+    for t in tools:
+        val = float(t.get("valor") or 0)
+        tech = techs.get(tool_to_tech.get(t.get("id")))
+        ciudad = (tech.get("ciudad") if tech else None) or "Sin ciudad"
+        estado = t.get("estado") or "Activa"
+        if ciudad not in per_city:
+            per_city[ciudad] = {"activa": 0.0, "inactiva": 0.0, "activa_count": 0, "inactiva_count": 0}
+        if estado == "Activa":
+            per_city[ciudad]["activa"] += val
+            per_city[ciudad]["activa_count"] += 1
+            total_activa += val
+        else:
+            per_city[ciudad]["inactiva"] += val
+            per_city[ciudad]["inactiva_count"] += 1
+            total_inactiva += val
+
+    ciudades = [
+        {
+            "ciudad": c,
+            "activa": round(v["activa"], 2),
+            "inactiva": round(v["inactiva"], 2),
+            "total": round(v["activa"] + v["inactiva"], 2),
+            "activa_count": v["activa_count"],
+            "inactiva_count": v["inactiva_count"],
+        }
+        for c, v in sorted(per_city.items(), key=lambda x: -(x[1]["activa"] + x[1]["inactiva"]))
+    ]
+    return {
+        "kpis": {
+            "total_activa": round(total_activa, 2),
+            "total_inactiva": round(total_inactiva, 2),
+            "total_valor": round(total_activa + total_inactiva, 2),
+            "count_tools": len(tools),
+            "count_activas": sum(1 for t in tools if t.get("estado") != "Inactiva"),
+            "count_inactivas": sum(1 for t in tools if t.get("estado") == "Inactiva"),
+        },
+        "ciudades": ciudades,
+    }
+
+
 
 app.include_router(api)
 
