@@ -13,24 +13,28 @@ export default function AsignacionesPage() {
   const [tools, setTools] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [cities, setCities] = useState([]);
   const [current, setCurrent] = useState([]);
   const [destType, setDestType] = useState("technician");
+  const [ciudadFilter, setCiudadFilter] = useState("__all__");
   const [techId, setTechId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [selectedTools, setSelectedTools] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [t, tech, wh, cur] = await Promise.all([
+    const [t, tech, wh, cur, ci] = await Promise.all([
       api.get("/tools/tools"),
       api.get("/tools/technicians"),
       api.get("/tools/warehouses"),
       api.get("/tools/reports/current"),
+      api.get("/cities"),
     ]);
     setTools(t.data);
     setTechnicians(tech.data);
     setWarehouses(wh.data);
     setCurrent(cur.data);
+    setCities(ci.data.cities || []);
   };
   useEffect(() => { load(); }, []);
 
@@ -41,6 +45,21 @@ export default function AsignacionesPage() {
     () => tools.filter((t) => t.estado === "Activa" && !assignedToTechIds.has(t.id)),
     [tools, current]
   );
+
+  const filteredTechs = useMemo(() => {
+    if (ciudadFilter === "__all__") return technicians;
+    return technicians.filter((t) => String(t.ciudad || "").toUpperCase() === ciudadFilter.toUpperCase());
+  }, [technicians, ciudadFilter]);
+  const filteredWarehouses = useMemo(() => {
+    if (ciudadFilter === "__all__") return warehouses;
+    return warehouses.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadFilter.toUpperCase());
+  }, [warehouses, ciudadFilter]);
+
+  // Reset selection when city filter would hide it
+  useEffect(() => {
+    if (tech && ciudadFilter !== "__all__" && String(tech.ciudad || "").toUpperCase() !== ciudadFilter.toUpperCase()) setTechId("");
+    if (warehouse && ciudadFilter !== "__all__" && String(warehouse.ciudad || "").toUpperCase() !== ciudadFilter.toUpperCase()) setWarehouseId("");
+  }, [ciudadFilter]); // eslint-disable-line
 
   const toggleTool = (id) => {
     setSelectedTools((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
@@ -125,26 +144,38 @@ export default function AsignacionesPage() {
 
       <Card className="p-6 border border-neutral-200 shadow-none">
         <form onSubmit={submit} className="space-y-5">
-          {/* Destination toggle */}
-          <div>
-            <Label className="mb-2 block">Destino</Label>
-            <div className="inline-flex rounded-md border border-neutral-200 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => { setDestType("technician"); setWarehouseId(""); }}
-                className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "technician" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
-                data-testid="dest-tech-btn"
-              >
-                <User className="w-4 h-4" /> Técnico
-              </button>
-              <button
-                type="button"
-                onClick={() => { setDestType("warehouse"); setTechId(""); }}
-                className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "warehouse" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
-                data-testid="dest-wh-btn"
-              >
-                <Warehouse className="w-4 h-4" /> Bodega interna
-              </button>
+          {/* City filter + Destination toggle */}
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-2 min-w-[220px]">
+              <Label>Filtrar por ciudad</Label>
+              <Select value={ciudadFilter} onValueChange={setCiudadFilter}>
+                <SelectTrigger data-testid="asig-ciudad-filter"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">— Todas las ciudades —</SelectItem>
+                  {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Destino</Label>
+              <div className="inline-flex rounded-md border border-neutral-200 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => { setDestType("technician"); setWarehouseId(""); }}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "technician" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
+                  data-testid="dest-tech-btn"
+                >
+                  <User className="w-4 h-4" /> Técnico
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setDestType("warehouse"); setTechId(""); }}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "warehouse" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
+                  data-testid="dest-wh-btn"
+                >
+                  <Warehouse className="w-4 h-4" /> Bodega interna
+                </button>
+              </div>
             </div>
           </div>
 
@@ -152,11 +183,11 @@ export default function AsignacionesPage() {
             <div className="lg:col-span-2 space-y-2">
               {destType === "technician" ? (
                 <>
-                  <Label>Técnico *</Label>
+                  <Label>Técnico * {ciudadFilter !== "__all__" && <span className="text-xs text-neutral-500 font-normal">({filteredTechs.length} en {ciudadFilter})</span>}</Label>
                   <Select value={techId} onValueChange={setTechId}>
-                    <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder="Seleccionar técnico…" /></SelectTrigger>
+                    <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder={filteredTechs.length === 0 ? "Sin técnicos en la ciudad seleccionada" : "Seleccionar técnico…"} /></SelectTrigger>
                     <SelectContent className="max-h-72">
-                      {technicians.map((t) => (
+                      {filteredTechs.map((t) => (
                         <SelectItem key={t.id} value={t.id}>{t.codigo} — {t.nombre} {t.apellido} · {t.ciudad || "—"} {t.email ? `· ${t.email}` : ""}</SelectItem>
                       ))}
                     </SelectContent>
@@ -171,11 +202,11 @@ export default function AsignacionesPage() {
                 </>
               ) : (
                 <>
-                  <Label>Bodega interna *</Label>
+                  <Label>Bodega interna * {ciudadFilter !== "__all__" && <span className="text-xs text-neutral-500 font-normal">({filteredWarehouses.length} en {ciudadFilter})</span>}</Label>
                   <Select value={warehouseId} onValueChange={setWarehouseId}>
-                    <SelectTrigger data-testid="assign-wh-select"><SelectValue placeholder="Seleccionar bodega interna…" /></SelectTrigger>
+                    <SelectTrigger data-testid="assign-wh-select"><SelectValue placeholder={filteredWarehouses.length === 0 ? "Sin bodegas en la ciudad seleccionada" : "Seleccionar bodega interna…"} /></SelectTrigger>
                     <SelectContent className="max-h-72">
-                      {warehouses.map((w) => (
+                      {filteredWarehouses.map((w) => (
                         <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
                       ))}
                     </SelectContent>

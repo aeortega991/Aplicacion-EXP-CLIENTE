@@ -13,6 +13,9 @@ import { toast } from "sonner";
 
 export default function TraspasosPage() {
   const [warehouses, setWarehouses] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [ciudadFrom, setCiudadFrom] = useState("__all__");
+  const [ciudadTo, setCiudadTo] = useState("__all__");
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
   const [notas, setNotas] = useState("");
@@ -22,12 +25,14 @@ export default function TraspasosPage() {
   const [history, setHistory] = useState([]);
 
   const loadAll = async () => {
-    const [w, h] = await Promise.all([
+    const [w, h, ci] = await Promise.all([
       api.get("/tools/warehouses"),
       api.get("/tools/transfers"),
+      api.get("/cities"),
     ]);
     setWarehouses(w.data);
     setHistory(h.data);
+    setCities(ci.data.cities || []);
   };
   useEffect(() => { loadAll(); }, []);
 
@@ -40,6 +45,23 @@ export default function TraspasosPage() {
 
   const from = warehouses.find((w) => w.id === fromId);
   const to = warehouses.find((w) => w.id === toId);
+
+  const filteredFromWh = useMemo(() => {
+    if (ciudadFrom === "__all__") return warehouses;
+    return warehouses.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadFrom.toUpperCase());
+  }, [warehouses, ciudadFrom]);
+  const filteredToWh = useMemo(() => {
+    let list = warehouses.filter((w) => w.id !== fromId);
+    if (ciudadTo !== "__all__") list = list.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadTo.toUpperCase());
+    return list;
+  }, [warehouses, fromId, ciudadTo]);
+
+  useEffect(() => {
+    if (from && ciudadFrom !== "__all__" && String(from.ciudad || "").toUpperCase() !== ciudadFrom.toUpperCase()) setFromId("");
+  }, [ciudadFrom]); // eslint-disable-line
+  useEffect(() => {
+    if (to && ciudadTo !== "__all__" && String(to.ciudad || "").toUpperCase() !== ciudadTo.toUpperCase()) setToId("");
+  }, [ciudadTo]); // eslint-disable-line
   const valorSel = useMemo(
     () => tools.filter((t) => selected.includes(t.tool_id)).reduce((s, t) => s + Number(t.valor || 0), 0),
     [tools, selected]
@@ -117,24 +139,44 @@ export default function TraspasosPage() {
 
       <Card className="p-6 border border-neutral-200 shadow-none">
         <form onSubmit={submit} className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+            <div className="space-y-2">
+              <Label>Ciudad ORIGEN</Label>
+              <Select value={ciudadFrom} onValueChange={setCiudadFrom}>
+                <SelectTrigger data-testid="trs-ciudad-from"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">— Todas —</SelectItem>
+                  {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label>Bodega ORIGEN *</Label>
               <Select value={fromId} onValueChange={setFromId}>
-                <SelectTrigger data-testid="trs-from-select"><SelectValue placeholder="Seleccionar bodega origen…" /></SelectTrigger>
+                <SelectTrigger data-testid="trs-from-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {warehouses.map((w) => (
+                  {filteredFromWh.map((w) => (
                     <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
+              <Label>Ciudad DESTINO</Label>
+              <Select value={ciudadTo} onValueChange={setCiudadTo}>
+                <SelectTrigger data-testid="trs-ciudad-to"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">— Todas —</SelectItem>
+                  {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>Bodega DESTINO *</Label>
               <Select value={toId} onValueChange={setToId}>
-                <SelectTrigger data-testid="trs-to-select"><SelectValue placeholder="Seleccionar bodega destino…" /></SelectTrigger>
+                <SelectTrigger data-testid="trs-to-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {warehouses.filter((w) => w.id !== fromId).map((w) => (
+                  {filteredToWh.map((w) => (
                     <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
                   ))}
                 </SelectContent>

@@ -10,26 +10,41 @@ import { toast } from "sonner";
 
 export default function DevolucionesPage() {
   const [technicians, setTechnicians] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [ciudadFilter, setCiudadFilter] = useState("__all__");
   const [current, setCurrent] = useState([]);
   const [techId, setTechId] = useState("");
   const [selected, setSelected] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [tech, cur] = await Promise.all([
+    const [tech, cur, ci] = await Promise.all([
       api.get("/tools/technicians"),
       api.get("/tools/reports/current"),
+      api.get("/cities"),
     ]);
     setTechnicians(tech.data);
     setCurrent(cur.data);
+    setCities(ci.data.cities || []);
   };
   useEffect(() => { load(); }, []);
 
   const tech = technicians.find((t) => t.id === techId);
   const techsWithAssignments = useMemo(() => {
     const ids = new Set(current.map((c) => c.technician_id));
-    return technicians.filter((t) => ids.has(t.id));
-  }, [technicians, current]);
+    let list = technicians.filter((t) => ids.has(t.id));
+    if (ciudadFilter !== "__all__") {
+      list = list.filter((t) => String(t.ciudad || "").toUpperCase() === ciudadFilter.toUpperCase());
+    }
+    return list;
+  }, [technicians, current, ciudadFilter]);
+
+  // Reset tech when city filter would hide them
+  useEffect(() => {
+    if (tech && ciudadFilter !== "__all__" && String(tech.ciudad || "").toUpperCase() !== ciudadFilter.toUpperCase()) {
+      setTechId(""); setSelected([]);
+    }
+  }, [ciudadFilter]); // eslint-disable-line
 
   const assigned = useMemo(() => current.filter((c) => c.technician_id === techId), [current, techId]);
   const valorSel = useMemo(
@@ -86,11 +101,21 @@ export default function DevolucionesPage() {
       <Card className="p-6 border border-neutral-200 shadow-none">
         <form onSubmit={submit} className="space-y-5">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
-            <div className="lg:col-span-2 space-y-2">
-              <Label>Técnico *</Label>
+            <div className="space-y-2">
+              <Label>Filtrar por ciudad</Label>
+              <Select value={ciudadFilter} onValueChange={setCiudadFilter}>
+                <SelectTrigger data-testid="dev-ciudad-filter"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">— Todas las ciudades —</SelectItem>
+                  {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Técnico * {ciudadFilter !== "__all__" && <span className="text-xs text-neutral-500 font-normal">({techsWithAssignments.length} en {ciudadFilter})</span>}</Label>
               <Select value={techId} onValueChange={(v) => { setTechId(v); setSelected([]); }}>
                 <SelectTrigger data-testid="ret-tech-select">
-                  <SelectValue placeholder="Seleccionar técnico con herramientas asignadas…" />
+                  <SelectValue placeholder={techsWithAssignments.length === 0 ? "Sin técnicos con asignaciones en esta ciudad" : "Seleccionar técnico…"} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   {techsWithAssignments.length === 0 && (
