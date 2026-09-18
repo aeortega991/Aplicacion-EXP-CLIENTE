@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { MODULES } from "@/config/modules";
 import {
@@ -15,6 +15,7 @@ import {
   BellRing,
   Car,
   Users,
+  ArrowLeft,
   LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-neutral-200 flex flex-col shrink-0" data-testid="app-sidebar">
         <div className="p-4 border-b border-neutral-200">
-          <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-3 group" data-testid="vehiculos-back-hub">
             <div className="w-9 h-9 rounded-md bg-red-600 flex items-center justify-center text-white">
               <Truck className="w-4 h-4" />
             </div>
@@ -53,23 +54,26 @@ export default function AppLayout() {
               <div className="text-sm font-bold tracking-tight leading-tight">Control de Flota</div>
               <div className="text-[10px] uppercase tracking-widest text-neutral-500">Fleet Management</div>
             </div>
-          </div>
+          </Link>
+          <Link to="/" className="mt-3 flex items-center gap-1.5 text-xs text-neutral-500 hover:text-red-600 transition-colors">
+            <ArrowLeft className="w-3 h-3" /> Volver al hub
+          </Link>
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <NavLink to="/" end className={navClass} data-testid="nav-dashboard">
+          <NavLink to="/vehiculos" end className={navClass} data-testid="nav-dashboard">
             <LayoutDashboard className="w-4 h-4" />
             <span>Dashboard</span>
           </NavLink>
-          <NavLink to="/alertas" className={navClass} data-testid="nav-alertas">
+          <NavLink to="/vehiculos/alertas" className={navClass} data-testid="nav-alertas">
             <BellRing className="w-4 h-4" />
             <span>Alertas</span>
           </NavLink>
-          <NavLink to="/mapa" className={navClass} data-testid="nav-mapa">
+          <NavLink to="/vehiculos/mapa" className={navClass} data-testid="nav-mapa">
             <Map className="w-4 h-4" />
             <span>Mapa de Rutas</span>
           </NavLink>
-          <NavLink to="/historial" className={navClass} data-testid="nav-historial">
+          <NavLink to="/vehiculos/historial" className={navClass} data-testid="nav-historial">
             <Car className="w-4 h-4" />
             <span>Historial Vehículo</span>
           </NavLink>
@@ -79,7 +83,7 @@ export default function AppLayout() {
           {MODULES.map((m) => {
             const Icon = ICONS[m.icon] || Truck;
             return (
-              <NavLink key={m.key} to={`/${m.key}`} className={navClass} data-testid={`nav-${m.key}`}>
+              <NavLink key={m.key} to={`/vehiculos/${m.key}`} className={navClass} data-testid={`nav-${m.key}`}>
                 <Icon className="w-4 h-4" />
                 <span>{m.label}</span>
               </NavLink>
@@ -91,7 +95,7 @@ export default function AppLayout() {
               <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">
                 Administración
               </div>
-              <NavLink to="/usuarios" className={navClass} data-testid="nav-usuarios">
+              <NavLink to="/vehiculos/usuarios" className={navClass} data-testid="nav-usuarios">
                 <Users className="w-4 h-4" />
                 <span>Usuarios</span>
               </NavLink>

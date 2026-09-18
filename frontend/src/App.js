@@ -2,13 +2,21 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
+import Hub from "@/pages/Hub";
 import AppLayout from "@/layouts/AppLayout";
+import ToolsLayout from "@/layouts/ToolsLayout";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
 import AlertsPage from "@/pages/AlertsPage";
 import RutasMap from "@/pages/RutasMap";
 import VehicleHistory from "@/pages/VehicleHistory";
+import ToolsDashboard from "@/pages/tools/ToolsDashboard";
+import HerramientasPage from "@/pages/tools/HerramientasPage";
+import TecnicosPage from "@/pages/tools/TecnicosPage";
+import AsignacionesPage from "@/pages/tools/AsignacionesPage";
+import { ReporteActual, ReporteHistorico } from "@/pages/tools/ReportesPage";
+import BajasPage from "@/pages/tools/BajasPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -31,14 +39,8 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route
-            path="/"
-            element={
-              <Protected>
-                <AppLayout />
-              </Protected>
-            }
-          >
+          <Route path="/" element={<Protected><Hub /></Protected>} />
+          <Route path="/vehiculos" element={<Protected><AppLayout /></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="alertas" element={<AlertsPage />} />
             <Route path="mapa" element={<RutasMap />} />
@@ -47,14 +49,16 @@ function App() {
             {MODULES.map((m) => (
               <Route key={m.key} path={m.key} element={<ModulePage moduleKey={m.key} />} />
             ))}
-            <Route
-              path="usuarios"
-              element={
-                <AdminOnly>
-                  <UsersPage />
-                </AdminOnly>
-              }
-            />
+            <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
+          </Route>
+          <Route path="/herramientas" element={<Protected><ToolsLayout /></Protected>}>
+            <Route index element={<ToolsDashboard />} />
+            <Route path="inventario" element={<HerramientasPage />} />
+            <Route path="tecnicos" element={<TecnicosPage />} />
+            <Route path="asignaciones" element={<AsignacionesPage />} />
+            <Route path="reporte-actual" element={<ReporteActual />} />
+            <Route path="reporte-historico" element={<ReporteHistorico />} />
+            <Route path="bajas" element={<BajasPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

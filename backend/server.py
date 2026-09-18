@@ -1156,6 +1156,207 @@ async def _startup():
 async def _shutdown():
     client.close()
 
+
+# ---- Tools module ----
+class ToolIn(BaseModel):
+    marca: str
+    modelo: Optional[str] = None
+    serie: Optional[str] = None
+    descripcion: Optional[str] = None
+    fecha_compra: Optional[str] = None
+    valor: Optional[float] = 0
+
+class ToolUpdate(BaseModel):
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    serie: Optional[str] = None
+    descripcion: Optional[str] = None
+    fecha_compra: Optional[str] = None
+    valor: Optional[float] = None
+    estado: Optional[str] = None  # Activa | Inactiva
+
+class TechIn(BaseModel):
+    nombre: str
+    apellido: str
+    codigo: str
+    ciudad: Optional[str] = None
+
+class TechUpdate(BaseModel):
+    nombre: Optional[str] = None
+    apellido: Optional[str] = None
+    codigo: Optional[str] = None
+    ciudad: Optional[str] = None
+
+class AssignmentIn(BaseModel):
+    tool_id: str
+    technician_id: str
+
+async def _next_tool_code() -> str:
+    docs = await db.tools.find({}, {"_id": 0, "tool_id": 1}).to_list(20000)
+    max_n = 0
+    for d in docs:
+        code = str(d.get("tool_id") or "")
+        if code.startswith("TL-"):
+            try:
+                n = int(code[3:])
+                if n > max_n: max_n = n
+            except Exception:
+                pass
+    return f"TL-{max_n + 1:04d}"
+
+@api.get("/tools/tools")
+async def list_tools(user: dict = Depends(get_current_user)):
+    docs = await db.tools.find({}, {"_id": 0}).to_list(5000)
+    return docs
+
+@api.post("/tools/tools")
+async def create_tool(payload: ToolIn, user: dict = Depends(get_current_user)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "tool_id": await _next_tool_code(),
+        "marca": payload.marca.strip(),
+        "modelo": (payload.modelo or "").strip() or None,
+        "serie": (payload.serie or "").strip() or None,
+        "descripcion": (payload.descripcion or "").strip() or None,
+        "fecha_compra": payload.fecha_compra,
+        "valor": float(payload.valor or 0),
+        "estado": "Activa",
+        "_created_by": user["username"],
+        "_created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.tools.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.patch("/tools/tools/{tool_id}")
+async def update_tool(tool_id: str, payload: ToolUpdate, user: dict = Depends(get_current_user)):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None or k in ("modelo","serie","descripcion","fecha_compra")}
+    if "estado" in update and update["estado"] not in ("Activa", "Inactiva"):
+        raise HTTPException(status_code=400, detail="Estado inválido")
+    if not update:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    res = await db.tools.update_one({"id": tool_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Herramienta no encontrada")
+    # If deactivated, auto-close any active assignments
+    if update.get("estado") == "Inactiva":
+        today = datetime.now(timezone.utc).date().isoformat()
+        await db.tool_assignments.update_many(
+            {"tool_id": tool_id, "estado": "Vigente"},
+            {"$set": {"estado": "Devuelta", "fecha_devolucion": today}},
+        )
+    return {"ok": True}
+
+@api.get("/tools/technicians")
+async def list_techs(user: dict = Depends(get_current_user)):
+    docs = await db.tool_technicians.find({}, {"_id": 0}).to_list(5000)
+    return docs
+
+@api.post("/tools/technicians")
+async def create_tech(payload: TechIn, user: dict = Depends(get_current_user)):
+    exists = await db.tool_technicians.find_one({"codigo": payload.codigo.strip()})
+    if exists:
+        raise HTTPException(status_code=400, detail="Código de técnico ya existe")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "nombre": payload.nombre.strip(),
+        "apellido": payload.apellido.strip(),
+        "codigo": payload.codigo.strip(),
+        "ciudad": (payload.ciudad or "").strip() or None,
+        "_created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.tool_technicians.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.patch("/tools/technicians/{tech_id}")
+async def update_tech(tech_id: str, payload: TechUpdate, user: dict = Depends(get_current_user)):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items()}
+    if not update:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    res = await db.tool_technicians.update_one({"id": tech_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    return {"ok": True}
+
+async def _enrich_assignments(assignments: list) -> list:
+    tools_map = {t["id"]: t for t in await db.tools.find({}, {"_id": 0}).to_list(5000)}
+    techs_map = {t["id"]: t for t in await db.tool_technicians.find({}, {"_id": 0}).to_list(5000)}
+    out = []
+    for a in assignments:
+        t = tools_map.get(a.get("tool_id"), {})
+        tech = techs_map.get(a.get("technician_id"), {})
+        out.append({
+            **a,
+            "tool_code": t.get("tool_id"),
+            "tool_marca": t.get("marca"),
+            "tool_modelo": t.get("modelo"),
+            "tool_serie": t.get("serie"),
+            "tool_valor": t.get("valor"),
+            "technician_codigo": tech.get("codigo"),
+            "technician_nombre": tech.get("nombre"),
+            "technician_apellido": tech.get("apellido"),
+            "ciudad": tech.get("ciudad"),
+        })
+    return out
+
+@api.post("/tools/assignments")
+async def create_assignment(payload: AssignmentIn, user: dict = Depends(get_current_user)):
+    tool = await db.tools.find_one({"id": payload.tool_id}, {"_id": 0})
+    if not tool:
+        raise HTTPException(status_code=404, detail="Herramienta no encontrada")
+    if tool.get("estado") != "Activa":
+        raise HTTPException(status_code=400, detail="La herramienta está inactiva y no puede asignarse")
+    tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
+    if not tech:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    # Ensure the tool is not already assigned
+    active = await db.tool_assignments.find_one({"tool_id": payload.tool_id, "estado": "Vigente"})
+    if active:
+        raise HTTPException(status_code=400, detail="La herramienta ya está asignada actualmente")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "tool_id": payload.tool_id,
+        "technician_id": payload.technician_id,
+        "fecha_asignacion": datetime.now(timezone.utc).date().isoformat(),
+        "fecha_devolucion": None,
+        "estado": "Vigente",
+        "_created_by": user["username"],
+    }
+    await db.tool_assignments.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.patch("/tools/assignments/{assignment_id}/return")
+async def return_assignment(assignment_id: str, user: dict = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date().isoformat()
+    res = await db.tool_assignments.update_one(
+        {"id": assignment_id, "estado": "Vigente"},
+        {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"]}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Asignación vigente no encontrada")
+    return {"ok": True}
+
+@api.get("/tools/reports/current")
+async def report_current(ciudad: Optional[str] = None, technician_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {"estado": "Vigente"}
+    if technician_id: query["technician_id"] = technician_id
+    docs = await db.tool_assignments.find(query, {"_id": 0}).to_list(5000)
+    enriched = await _enrich_assignments(docs)
+    if ciudad:
+        enriched = [e for e in enriched if _norm(e.get("ciudad")) == _norm(ciudad)]
+    return enriched
+
+@api.get("/tools/reports/history")
+async def report_history(ciudad: Optional[str] = None, user: dict = Depends(get_current_user)):
+    docs = await db.tool_assignments.find({}, {"_id": 0}).sort("fecha_asignacion", -1).to_list(20000)
+    enriched = await _enrich_assignments(docs)
+    if ciudad:
+        enriched = [e for e in enriched if _norm(e.get("ciudad")) == _norm(ciudad)]
+    return enriched
+
+
 app.include_router(api)
 
 app.add_middleware(
