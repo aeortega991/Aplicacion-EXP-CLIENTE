@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 
-const empty = { nombre: "", apellido: "", codigo: "", ciudad: "" };
+const empty = { nombre: "", apellido: "", codigo: "", ciudad: "", email: "", cedula: "" };
 
 export default function TecnicosPage() {
   const [rows, setRows] = useState([]);
@@ -21,10 +21,7 @@ export default function TecnicosPage() {
   const [q, setQ] = useState("");
 
   const load = () => api.get("/tools/technicians").then((r) => setRows(r.data)).catch((e) => toast.error(formatApiError(e)));
-  useEffect(() => {
-    load();
-    api.get("/cities").then((r) => setCities(r.data.cities || []));
-  }, []);
+  useEffect(() => { load(); api.get("/cities").then((r) => setCities(r.data.cities || [])); }, []);
 
   const filtered = useMemo(() => {
     if (!q) return rows;
@@ -33,7 +30,7 @@ export default function TecnicosPage() {
   }, [rows, q]);
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
-  const openEdit = (r) => { setEditing(r); setForm({ nombre: r.nombre || "", apellido: r.apellido || "", codigo: r.codigo || "", ciudad: r.ciudad || "" }); setOpen(true); };
+  const openEdit = (r) => { setEditing(r); setForm({ ...empty, ...r }); setOpen(true); };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -45,8 +42,7 @@ export default function TecnicosPage() {
         await api.post("/tools/technicians", form);
         toast.success("Técnico creado");
       }
-      setOpen(false);
-      load();
+      setOpen(false); load();
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
@@ -63,9 +59,7 @@ export default function TecnicosPage() {
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <Input placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-10 w-64" />
           </div>
-          <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tech-btn">
-            <Plus className="w-4 h-4" /> Agregar
-          </Button>
+          <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tech-btn"><Plus className="w-4 h-4" /> Agregar</Button>
         </div>
       </div>
 
@@ -74,8 +68,10 @@ export default function TecnicosPage() {
           <TableHeader>
             <TableRow className="bg-neutral-50">
               <TableHead className="text-xs uppercase tracking-wider">Código</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">Cédula</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Nombre</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Apellido</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">Email</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Ciudad</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wider">Acciones</TableHead>
             </TableRow>
@@ -84,12 +80,12 @@ export default function TecnicosPage() {
             {filtered.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-mono">{r.codigo || "—"}</TableCell>
+                <TableCell className="font-mono text-xs">{r.cedula || "—"}</TableCell>
                 <TableCell className="font-medium">{r.nombre}</TableCell>
                 <TableCell>{r.apellido}</TableCell>
+                <TableCell className="text-sm text-neutral-600">{r.email || "—"}</TableCell>
                 <TableCell>{r.ciudad || "—"}</TableCell>
-                <TableCell className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil className="w-4 h-4" /></Button>
-                </TableCell>
+                <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil className="w-4 h-4" /></Button></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -106,7 +102,9 @@ export default function TecnicosPage() {
             <div className="space-y-2"><Label>Nombre *</Label><Input value={form.nombre} onChange={(e) => setForm((s) => ({ ...s, nombre: e.target.value }))} required /></div>
             <div className="space-y-2"><Label>Apellido *</Label><Input value={form.apellido} onChange={(e) => setForm((s) => ({ ...s, apellido: e.target.value }))} required /></div>
             <div className="space-y-2"><Label>Código *</Label><Input value={form.codigo} onChange={(e) => setForm((s) => ({ ...s, codigo: e.target.value }))} required /></div>
-            <div className="space-y-2">
+            <div className="space-y-2"><Label>Cédula</Label><Input value={form.cedula} onChange={(e) => setForm((s) => ({ ...s, cedula: e.target.value }))} /></div>
+            <div className="col-span-2 space-y-2"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))} placeholder="tecnico@empresa.com" /></div>
+            <div className="col-span-2 space-y-2">
               <Label>Ciudad</Label>
               <Select value={form.ciudad || "__none__"} onValueChange={(v) => setForm((s) => ({ ...s, ciudad: v === "__none__" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar…" /></SelectTrigger>

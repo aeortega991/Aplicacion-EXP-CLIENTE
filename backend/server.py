@@ -1180,16 +1180,24 @@ class TechIn(BaseModel):
     apellido: str
     codigo: str
     ciudad: Optional[str] = None
+    email: Optional[str] = None
+    cedula: Optional[str] = None
 
 class TechUpdate(BaseModel):
     nombre: Optional[str] = None
     apellido: Optional[str] = None
     codigo: Optional[str] = None
     ciudad: Optional[str] = None
+    email: Optional[str] = None
+    cedula: Optional[str] = None
 
 class AssignmentIn(BaseModel):
     tool_id: str
     technician_id: str
+
+class AssignmentBatchIn(BaseModel):
+    technician_id: str
+    tool_ids: List[str]
 
 async def _next_tool_code() -> str:
     docs = await db.tools.find({}, {"_id": 0, "tool_id": 1}).to_list(20000)
@@ -1263,6 +1271,8 @@ async def create_tech(payload: TechIn, user: dict = Depends(get_current_user)):
         "apellido": payload.apellido.strip(),
         "codigo": payload.codigo.strip(),
         "ciudad": (payload.ciudad or "").strip() or None,
+        "email": (payload.email or "").strip() or None,
+        "cedula": (payload.cedula or "").strip() or None,
         "_created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.tool_technicians.insert_one(doc)
@@ -1337,6 +1347,193 @@ async def return_assignment(assignment_id: str, user: dict = Depends(get_current
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Asignación vigente no encontrada")
     return {"ok": True}
+
+def _build_assignment_pdf(technician: dict, tools_list: list, batch_id: str, creator_name: str) -> bytes:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from io import BytesIO
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
+    styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
+
+    story = []
+    story.append(Paragraph("Acta de Entrega de Herramientas", styles["Hred"]))
+    story.append(Paragraph(f"Batch: <b>{batch_id[:8]}</b> · Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(creator_name)}", styles["Small"]))
+    story.append(Spacer(1, 12))
+
+    tech_data = [
+        ["Nombre completo", f"{technician.get('nombre','')} {technician.get('apellido','')}", "Código", technician.get("codigo","-")],
+        ["Cédula", technician.get("cedula") or "-", "Ciudad", technician.get("ciudad") or "-"],
+        ["Correo", technician.get("email") or "-", "", ""],
+    ]
+    t = Table(tech_data, colWidths=[1.3*inch, 2.3*inch, 1.1*inch, 2.0*inch])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F3F4F6")),
+        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#E5E7EB")),
+        ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    story.append(t)
+    story.append(Paragraph("Herramientas Entregadas", styles["H2s"]))
+    rows = [["ID", "Marca", "Modelo", "Serie", "F. Compra", "Valor"]]
+    total = 0.0
+    for tool in tools_list:
+        val = float(tool.get("valor") or 0)
+        total += val
+        rows.append([
+            tool.get("tool_id") or "-",
+            str(tool.get("marca") or "-")[:22],
+            str(tool.get("modelo") or "-")[:22],
+            str(tool.get("serie") or "-")[:20],
+            str(tool.get("fecha_compra") or "-")[:10],
+            f"${val:,.2f}",
+        ])
+    rows.append(["", "", "", "", "TOTAL", f"${total:,.2f}"])
+    tt = Table(rows, repeatRows=1, colWidths=[0.8*inch, 1.3*inch, 1.3*inch, 1.4*inch, 1.0*inch, 1.0*inch])
+    tt.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#D92D20")),
+        ("TEXTCOLOR", (-2,-1), (-1,-1), colors.white),
+        ("FONTNAME", (-2,-1), (-1,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("ALIGN", (-1,1), (-1,-1), "RIGHT"),
+        ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#E5E7EB")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-2), [colors.white, colors.HexColor("#F9FAFB")]),
+    ]))
+    story.append(tt)
+    story.append(Spacer(1, 30))
+    firma = [["", ""], ["_____________________________", "_____________________________"], ["Entrega (Responsable)", f"Recibe: {technician.get('nombre','')} {technician.get('apellido','')}"]]
+    fs = Table(firma, colWidths=[3.2*inch, 3.2*inch])
+    fs.setStyle(TableStyle([("FONTSIZE", (0,0), (-1,-1), 9), ("ALIGN", (0,0), (-1,-1), "CENTER")]))
+    story.append(fs)
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.getvalue()
+
+@api.post("/tools/assignments/batch")
+async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depends(get_current_user)):
+    if not payload.tool_ids:
+        raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
+    tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
+    if not tech:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+
+    tools_docs = []
+    for tid in payload.tool_ids:
+        tool = await db.tools.find_one({"id": tid}, {"_id": 0})
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Herramienta no encontrada: {tid}")
+        if tool.get("estado") != "Activa":
+            raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} está inactiva y no puede asignarse")
+        active = await db.tool_assignments.find_one({"tool_id": tid, "estado": "Vigente"})
+        if active:
+            raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} ya está asignada actualmente")
+        tools_docs.append(tool)
+
+    batch_id = str(uuid.uuid4())
+    today = datetime.now(timezone.utc).date().isoformat()
+    for tool in tools_docs:
+        await db.tool_assignments.insert_one({
+            "id": str(uuid.uuid4()),
+            "tool_id": tool["id"],
+            "technician_id": payload.technician_id,
+            "batch_id": batch_id,
+            "fecha_asignacion": today,
+            "fecha_devolucion": None,
+            "estado": "Vigente",
+            "_created_by": user["username"],
+        })
+
+    # Build PDF once, store the bytes hex-encoded
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    pdf_bytes = _build_assignment_pdf(tech, tools_docs, batch_id, creator.get("name") if creator else user.get("username"))
+    await db.tool_assignment_batches.insert_one({
+        "id": batch_id,
+        "technician_id": payload.technician_id,
+        "tool_ids": payload.tool_ids,
+        "fecha": today,
+        "pdf_hex": pdf_bytes.hex(),
+        "created_by": user["username"],
+    })
+
+    # Send emails
+    emails_sent, emails_skipped = [], []
+    total = sum(float(t.get("valor") or 0) for t in tools_docs)
+    subject = f"Acta de entrega de herramientas — {tech.get('nombre')} {tech.get('apellido')}"
+    tool_rows_html = "".join([
+        f'<tr><td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("tool_id") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB">{escape(str(t.get("marca") or ""))} {escape(str(t.get("modelo") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("serie") or "-"))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace;text-align:right">${float(t.get("valor") or 0):,.2f}</td></tr>'
+        for t in tools_docs
+    ])
+    html = (
+        '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
+        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #D92D20">'
+        f'<h2 style="margin:0;color:#111827">Acta de entrega de herramientas</h2>'
+        f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
+        '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
+        f'<p><strong>Técnico:</strong> {escape(str(tech.get("nombre") or ""))} {escape(str(tech.get("apellido") or ""))} — Código {escape(str(tech.get("codigo") or ""))}</p>'
+        f'<p><strong>Cédula:</strong> {escape(str(tech.get("cedula") or "—"))} · <strong>Ciudad:</strong> {escape(str(tech.get("ciudad") or "—"))}</p>'
+        f'<p><strong>Fecha:</strong> {today} · <strong>Entregado por:</strong> {escape(creator.get("name") if creator else user["username"])}</p>'
+        '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px">'
+        '<thead><tr style="background:#111827;color:white">'
+        '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th>'
+        '<th style="padding:6px 8px;text-align:left">Serie</th><th style="padding:6px 8px;text-align:right">Valor</th></tr></thead>'
+        f'<tbody>{tool_rows_html}'
+        f'<tr><td colspan="3" style="padding:8px;text-align:right;background:#D92D20;color:white;font-weight:bold">TOTAL</td>'
+        f'<td style="padding:8px;text-align:right;background:#D92D20;color:white;font-weight:bold;font-family:monospace">${total:,.2f}</td></tr>'
+        '</tbody></table>'
+        f'<p style="margin-top:12px;color:#6B7280;font-size:12px">Se adjunta el acta oficial en PDF (descargable desde el sistema).</p>'
+        '</td></tr>'
+        '<tr><td style="padding:14px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+        f'Este correo fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca solicitamos contraseñas ni datos de tarjeta por correo.'
+        '</td></tr></table>'
+    )
+    recipients = []
+    if tech.get("email"): recipients.append(("Técnico", tech["email"]))
+    if creator and creator.get("email"): recipients.append(("Responsable", creator["email"]))
+    for who, addr in recipients:
+        try:
+            eid = await _send_email(to=addr, subject=subject, html=html)
+            emails_sent.append({"tipo": who, "email": addr, "email_id": eid})
+        except Exception as e:
+            emails_skipped.append({"tipo": who, "email": addr, "error": str(e)})
+
+    return {
+        "batch_id": batch_id,
+        "total_herramientas": len(tools_docs),
+        "valor_total": round(total, 2),
+        "emails_enviados": emails_sent,
+        "emails_omitidos": emails_skipped,
+    }
+
+@api.get("/tools/assignments/batch/{batch_id}/pdf")
+async def get_batch_pdf(batch_id: str, user: dict = Depends(get_current_user)):
+    b = await db.tool_assignment_batches.find_one({"id": batch_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Acta no encontrada")
+    pdf_bytes = bytes.fromhex(b["pdf_hex"])
+    from io import BytesIO
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="acta_{batch_id[:8]}.pdf"'},
+    )
 
 @api.get("/tools/reports/current")
 async def report_current(ciudad: Optional[str] = None, technician_id: Optional[str] = None, user: dict = Depends(get_current_user)):
