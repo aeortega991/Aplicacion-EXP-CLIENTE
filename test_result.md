@@ -178,27 +178,51 @@ backend:
         comment: "Regression test PASSED. POST /api/auth/login with wrong password returns 401 (NOT 404). Bug fix verified - the 404 error is resolved."
 
 frontend:
-  - task: "Frontend Testing"
+  - task: "Login Flow - Admin User (UI)"
     implemented: true
-    working: "NA"
-    file: "frontend/src/App.js"
+    working: true
+    file: "frontend/src/pages/Login.jsx"
     stuck_count: 0
-    priority: "low"
+    priority: "high"
     needs_retesting: false
     status_history:
-      - working: "NA"
+      - working: true
         agent: "testing"
-        comment: "Frontend testing not performed as per system instructions. Backend APIs are all working correctly."
+        comment: "UI test PASSED. Admin login (aeortega/admin123) successfully redirects to Hub page. User info displayed correctly (@aeortega · admin). Success toast 'Bienvenido' shown. NO 404 error toast. Logout works correctly."
+  
+  - task: "Login Flow - Operator User (UI)"
+    implemented: true
+    working: true
+    file: "frontend/src/pages/Login.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "UI test PASSED. Operator login (operador/operador123) successfully redirects to Hub page. User info displayed correctly (@operador · user). Success toast 'Bienvenido' shown. NO 404 error toast."
+  
+  - task: "404 Bug Fix Verification"
+    implemented: true
+    working: true
+    file: "frontend/.env"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Bug fix VERIFIED. No 404 errors detected in network requests or error toasts. REACT_APP_BACKEND_URL correctly set in frontend/.env. All login API calls successful (200 status). No console errors detected."
 
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 1
-  run_ui: false
+  test_sequence: 2
+  run_ui: true
 
 test_plan:
   current_focus:
-    - "Login 404 Bug Fix Regression Testing"
+    - "Login 404 Bug Fix - UI Verification Complete"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -206,3 +230,5 @@ test_plan:
 agent_communication:
   - agent: "testing"
     message: "Regression testing completed for login 404 bug fix. All 6 tests PASSED. The .env files (backend/.env and frontend/.env) have been restored and the backend is running correctly. All authentication endpoints are working as expected: admin login (200), operator login (200), auth/me (200), modules/flota (200 with 78 vehicles), dashboard (200), and wrong password handling (401 not 404). The bug is FIXED."
+  - agent: "testing"
+    message: "UI testing completed for login 404 bug fix. BOTH admin and operator login flows work perfectly in the browser. Admin (aeortega/admin123) and Operator (operador/operador123) both successfully login, redirect to Hub, and show correct user info. NO 404 error toasts appear. NO network 404 errors detected. NO console errors. The bug is COMPLETELY FIXED and verified in the UI."
