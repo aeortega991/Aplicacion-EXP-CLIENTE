@@ -101,3 +101,108 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Control de Flota Vehicular - Fleet management system with authentication, vehicle tracking, and dashboard"
+
+backend:
+  - task: "Authentication - Admin Login"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. POST /api/auth/login with aeortega/admin123 returns 200 with token and role=admin. Bug fix verified - no longer returns 404."
+  
+  - task: "Authentication - Operator Login"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. POST /api/auth/login with operador/operador123 returns 200 with token and role=user."
+  
+  - task: "Authentication - Get Current User"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. GET /api/auth/me with Bearer token returns 200 with correct user data (username: aeortega, role: admin)."
+  
+  - task: "Flota Module - Get Vehicles"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. GET /api/modules/flota with admin Bearer token returns 200 with list of 78 vehicles."
+  
+  - task: "Dashboard - Get Dashboard Data"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. GET /api/dashboard with admin Bearer token returns 200 with dashboard data (kpis, consumo_combustible, gasto_por_vehiculo, gasto_por_ciudad, multas_por_conductor, consumo_por_vehiculo)."
+  
+  - task: "Authentication - Wrong Password Handling"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Regression test PASSED. POST /api/auth/login with wrong password returns 401 (NOT 404). Bug fix verified - the 404 error is resolved."
+
+frontend:
+  - task: "Frontend Testing"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/App.js"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Frontend testing not performed as per system instructions. Backend APIs are all working correctly."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Login 404 Bug Fix Regression Testing"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "testing"
+    message: "Regression testing completed for login 404 bug fix. All 6 tests PASSED. The .env files (backend/.env and frontend/.env) have been restored and the backend is running correctly. All authentication endpoints are working as expected: admin login (200), operator login (200), auth/me (200), modules/flota (200 with 78 vehicles), dashboard (200), and wrong password handling (401 not 404). The bug is FIXED."
