@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, Filter } from "lucide-react";
+import { Plus, Search, Filter, Download } from "lucide-react";
 import { toast } from "sonner";
 import { estadoBadge } from "./estados";
 import ExpenseDetailDialog from "./ExpenseDetailDialog";
@@ -25,6 +25,10 @@ export default function SolicitudesPage() {
   const [cities, setCities] = useState([]);
   const [q, setQ] = useState("");
   const [fEstado, setFEstado] = useState("all");
+  const [fCiudad, setFCiudad] = useState("all");
+  const [fDesde, setFDesde] = useState("");
+  const [fHasta, setFHasta] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [detailId, setDetailId] = useState(null);
@@ -42,9 +46,31 @@ export default function SolicitudesPage() {
   const filtered = useMemo(() => {
     let d = rows;
     if (fEstado !== "all") d = d.filter((r) => r.estado === fEstado);
+    if (fCiudad !== "all") d = d.filter((r) => (r.ciudad || "") === fCiudad);
+    if (fDesde) d = d.filter((r) => String(r.created_at || "").slice(0, 10) >= fDesde);
+    if (fHasta) d = d.filter((r) => String(r.created_at || "").slice(0, 10) <= fHasta);
     if (q) { const s = q.toLowerCase(); d = d.filter((r) => [r.numero, r.proveedor, r.cuenta_nombre, r.solicitante_nombre, r.ciudad].some((v) => String(v || "").toLowerCase().includes(s))); }
     return d;
-  }, [rows, q, fEstado]);
+  }, [rows, q, fEstado, fCiudad, fDesde, fHasta]);
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const params = {};
+      if (fCiudad !== "all") params.ciudad = fCiudad;
+      if (fDesde) params.desde = fDesde;
+      if (fHasta) params.hasta = fHasta;
+      const r = await api.get("/expenses/export", { params, responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gastos_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Excel generado");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setExporting(false); }
+  };
 
   const openDetail = (id) => { setDetailId(id); setDetailOpen(true); };
 
@@ -76,11 +102,16 @@ export default function SolicitudesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Solicitudes de gasto</h1>
           <p className="text-sm text-neutral-500 mt-1">{filtered.length} de {rows.length} solicitudes</p>
         </div>
-        {canCreate && (
-          <Button onClick={() => { setForm(emptyForm); setOpen(true); }} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="btn-nueva-solicitud">
-            <Plus className="w-4 h-4" /> Nueva solicitud
+        <div className="flex items-center gap-2">
+          <Button onClick={exportExcel} disabled={exporting} variant="outline" className="gap-2" data-testid="btn-export-excel">
+            <Download className="w-4 h-4" /> {exporting ? "Generando…" : "Excel"}
           </Button>
-        )}
+          {canCreate && (
+            <Button onClick={() => { setForm(emptyForm); setOpen(true); }} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="btn-nueva-solicitud">
+              <Plus className="w-4 h-4" /> Nueva solicitud
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -95,6 +126,22 @@ export default function SolicitudesPage() {
             <SelectContent>{estadoOptions.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
           </Select>
         </div>
+        <Select value={fCiudad} onValueChange={setFCiudad}>
+          <SelectTrigger className="w-44" data-testid="solic-ciudad-filter"><SelectValue placeholder="Ciudad" /></SelectTrigger>
+          <SelectContent className="max-h-64">
+            <SelectItem value="all">Todas las ciudades</SelectItem>
+            {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-neutral-500">Creación:</span>
+          <Input type="date" value={fDesde} onChange={(e) => setFDesde(e.target.value)} className="w-36" data-testid="solic-desde" />
+          <span className="text-neutral-400">–</span>
+          <Input type="date" value={fHasta} onChange={(e) => setFHasta(e.target.value)} className="w-36" data-testid="solic-hasta" />
+        </div>
+        {(fCiudad !== "all" || fDesde || fHasta || fEstado !== "all" || q) && (
+          <Button variant="ghost" size="sm" onClick={() => { setQ(""); setFEstado("all"); setFCiudad("all"); setFDesde(""); setFHasta(""); }}>Limpiar</Button>
+        )}
       </div>
 
       <Card className="border border-neutral-200 shadow-none overflow-hidden">

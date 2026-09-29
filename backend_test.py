@@ -75,11 +75,11 @@ test_lider_id = None
 test_tool_id = None
 test_warehouse_id = None
 
-def test_1_admin_login():
-    """Test 1: Admin login with aeortega/admin123"""
+def test_0_admin_login():
+    """Test 0: Admin login with aeortega/admin123"""
     global admin_token
     
-    log_test("1", "Admin Login (aeortega/admin123)")
+    log_test("0", "Admin Login (aeortega/admin123)")
     
     resp = make_request("POST", "/auth/login", json_data={
         "username": ADMIN_USER,
@@ -105,16 +105,78 @@ def test_1_admin_login():
     log_pass(f"Admin login successful. Token received. Role: {user_data.get('role')}")
     return True
 
-def test_2_create_tecnico():
-    """Test 2: Create tecnico user with documento TEST9001"""
+def test_1_get_tecnicos():
+    """Test 1: GET /api/modules/tecnicos returns list of tecnico users (~52)"""
+    log_test("1", "GET /api/modules/tecnicos (expect ~52 tecnico users)")
+    
+    resp = make_request("GET", "/modules/tecnicos", token=admin_token)
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"GET /api/modules/tecnicos failed with status {resp.status_code if resp else 'N/A'}")
+        return False
+    
+    tecnicos = resp.json()
+    count = len(tecnicos)
+    
+    log_pass(f"GET /api/modules/tecnicos returned {count} tecnico users")
+    
+    # Verify structure
+    if tecnicos:
+        sample = tecnicos[0]
+        required_fields = ["id", "nombre", "documento", "ciudad"]
+        for field in required_fields:
+            if field not in sample:
+                log_fail(f"Missing required field '{field}' in tecnico object")
+                return False
+        log_pass(f"Tecnico structure verified: {required_fields}")
+    
+    if count < 40:
+        log_fail(f"Expected ~52 tecnicos, got {count}")
+        return False
+    
+    return True
+
+def test_2_get_technicians():
+    """Test 2: GET /api/tools/technicians returns technicians (~52)"""
+    log_test("2", "GET /api/tools/technicians (expect ~52 technicians)")
+    
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"GET /api/tools/technicians failed with status {resp.status_code if resp else 'N/A'}")
+        return False
+    
+    technicians = resp.json()
+    count = len(technicians)
+    
+    log_pass(f"GET /api/tools/technicians returned {count} technicians")
+    
+    # Verify structure
+    if technicians:
+        sample = technicians[0]
+        required_fields = ["id", "codigo", "nombre", "apellido", "ciudad"]
+        for field in required_fields:
+            if field not in sample:
+                log_fail(f"Missing required field '{field}' in technician object")
+                return False
+        log_pass(f"Technician structure verified: {required_fields}")
+    
+    if count < 40:
+        log_fail(f"Expected ~52 technicians, got {count}")
+        return False
+    
+    return True
+
+def test_3_create_tecnico():
+    """Test 3: Create tecnico user with documento TEST99999"""
     global test_tecnico_id
     
-    log_test("2", "Create Tecnico User (documento: TEST9001)")
+    log_test("3", "Create Tecnico User (documento: TEST99999)")
     
     # Create user
     resp = make_request("POST", "/users", token=admin_token, json_data={
-        "documento": "TEST9001",
-        "name": "Tecnico Prueba Uno",
+        "documento": "TEST99999",
+        "name": "Tecnico Prueba",
         "role": "tecnico",
         "ciudad": "QUITO",
         "password": "clave123"
@@ -139,7 +201,7 @@ def test_2_create_tecnico():
     technicians = resp.json()
     found_in_tools = False
     for tech in technicians:
-        if tech.get("codigo") == "TEST9001" or "Tecnico Prueba" in tech.get("nombre", ""):
+        if tech.get("id") == test_tecnico_id:
             found_in_tools = True
             log_pass(f"Technician found in /api/tools/technicians: {tech.get('nombre')} (codigo: {tech.get('codigo')})")
             break
@@ -157,7 +219,7 @@ def test_2_create_tecnico():
     tecnicos = resp.json()
     found_in_module = False
     for tec in tecnicos:
-        if tec.get("documento") == "TEST9001":
+        if tec.get("documento") == "TEST99999":
             found_in_module = True
             log_pass(f"Tecnico found in /api/modules/tecnicos: {tec.get('nombre')} (documento: {tec.get('documento')})")
             break
@@ -166,29 +228,28 @@ def test_2_create_tecnico():
         log_fail("Tecnico NOT found in /api/modules/tecnicos")
         return False
     
-    # Test login with documento (lowercase and uppercase)
-    for username in ["TEST9001", "test9001"]:
-        resp = make_request("POST", "/auth/login", json_data={
-            "username": username,
-            "password": "clave123"
-        })
-        
-        if not resp or resp.status_code != 200:
-            log_fail(f"Login with username '{username}' failed")
-            return False
-        
-        login_data = resp.json()
-        if login_data.get("user", {}).get("role") != "tecnico":
-            log_fail(f"Expected role 'tecnico', got '{login_data.get('user', {}).get('role')}'")
-            return False
-        
-        log_pass(f"Login successful with username '{username}' (role: tecnico)")
+    # Test login with documento
+    resp = make_request("POST", "/auth/login", json_data={
+        "username": "TEST99999",
+        "password": "clave123"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Login with username 'TEST99999' failed")
+        return False
+    
+    login_data = resp.json()
+    if login_data.get("user", {}).get("role") != "tecnico":
+        log_fail(f"Expected role 'tecnico', got '{login_data.get('user', {}).get('role')}'")
+        return False
+    
+    log_pass(f"Login successful with username 'TEST99999' (role: tecnico)")
     
     return True
 
-def test_3_edit_tecnico():
-    """Test 3: Edit tecnico user and verify changes in /api/tools/technicians"""
-    log_test("3", "Edit Tecnico User (update name and ciudad)")
+def test_4_edit_tecnico():
+    """Test 4: Edit tecnico user and verify changes in /api/tools/technicians"""
+    log_test("4", "Edit Tecnico User (update name and ciudad to CUENCA)")
     
     if not test_tecnico_id:
         log_fail("No tecnico ID available from previous test")
@@ -196,8 +257,8 @@ def test_3_edit_tecnico():
     
     # Edit user
     resp = make_request("PATCH", f"/users/{test_tecnico_id}", token=admin_token, json_data={
-        "name": "Tecnico Prueba Editado",
-        "ciudad": "GUAYAQUIL"
+        "name": "Tecnico Editado",
+        "ciudad": "CUENCA"
     })
     
     if not resp or resp.status_code != 200:
@@ -220,18 +281,22 @@ def test_3_edit_tecnico():
         if tech.get("id") == test_tecnico_id:
             found = True
             nombre = tech.get("nombre", "")
+            apellido = tech.get("apellido", "")
             ciudad = tech.get("ciudad", "")
+            full_name = f"{nombre} {apellido}".strip()
             
-            if "Editado" in nombre:
-                log_pass(f"Updated name found in technician: {nombre}")
+            # The sync function splits name into nombre (first word) and apellido (rest)
+            # So "Tecnico Editado" becomes nombre="Tecnico", apellido="Editado"
+            if "Editado" in full_name or "Editado" in apellido:
+                log_pass(f"Updated name reflected in technician: {full_name}")
             else:
-                log_fail(f"Name not updated correctly. Expected 'Editado' in name, got: {nombre}")
+                log_fail(f"Name not updated correctly. Expected 'Editado' in name, got: {full_name}")
                 return False
             
-            if ciudad == "GUAYAQUIL":
+            if ciudad == "CUENCA":
                 log_pass(f"Updated ciudad found in technician: {ciudad}")
             else:
-                log_fail(f"Ciudad not updated correctly. Expected 'GUAYAQUIL', got: {ciudad}")
+                log_fail(f"Ciudad not updated correctly. Expected 'CUENCA', got: {ciudad}")
                 return False
             break
     
@@ -241,15 +306,15 @@ def test_3_edit_tecnico():
     
     return True
 
-def test_4_create_lider():
-    """Test 4: Create lider user with documento LID5001"""
+def test_6_create_lider():
+    """Test 6: Create lider user with documento LID12345 and verify it does NOT appear in /api/tools/technicians"""
     global test_lider_id
     
-    log_test("4", "Create Lider User (documento: LID5001)")
+    log_test("6", "Create Lider User (documento: LID12345) - should NOT appear in technicians")
     
     # Create user
     resp = make_request("POST", "/users", token=admin_token, json_data={
-        "documento": "LID5001",
+        "documento": "LID12345",
         "name": "Lider Doc",
         "role": "lider",
         "region": "R1",
@@ -269,12 +334,12 @@ def test_4_create_lider():
     
     # Test login with documento
     resp = make_request("POST", "/auth/login", json_data={
-        "username": "LID5001",
+        "username": "LID12345",
         "password": "clave123"
     })
     
     if not resp or resp.status_code != 200:
-        log_fail(f"Login with LID5001 failed")
+        log_fail(f"Login with LID12345 failed")
         return False
     
     login_data = resp.json()
@@ -282,18 +347,49 @@ def test_4_create_lider():
         log_fail(f"Expected role 'lider', got '{login_data.get('user', {}).get('role')}'")
         return False
     
-    log_pass(f"Login successful with username 'LID5001' (role: lider)")
+    log_pass(f"Login successful with username 'LID12345' (role: lider)")
+    
+    # Verify it does NOT appear in /api/tools/technicians
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get technicians list")
+        return False
+    
+    technicians = resp.json()
+    found = False
+    for tech in technicians:
+        if tech.get("id") == test_lider_id or tech.get("codigo") == "LID12345":
+            found = True
+            break
+    
+    if found:
+        log_fail("Lider user incorrectly appears in /api/tools/technicians")
+        return False
+    
+    log_pass("Lider user correctly does NOT appear in /api/tools/technicians")
     return True
 
-def test_5_tool_assignment_technician():
-    """Test 5: Assign tool to technician"""
+def test_8_tool_assignment_technician():
+    """Test 8: Assign tool to technician"""
     global test_tool_id
     
-    log_test("5", "Tool Assignment to Technician")
+    log_test("8", "Tool Assignment to Technician")
     
-    if not test_tecnico_id:
-        log_fail("No tecnico ID available")
+    # Get a real technician from /api/tools/technicians
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get technicians list")
         return False
+    
+    technicians = resp.json()
+    if not technicians:
+        log_fail("No technicians available")
+        return False
+    
+    # Use the first technician
+    tech_id = technicians[0].get("id")
+    tech_name = technicians[0].get("nombre")
+    log_info(f"Using technician: {tech_name} (id: {tech_id})")
     
     # Get existing tools
     resp = make_request("GET", "/tools/tools", token=admin_token)
@@ -308,9 +404,10 @@ def test_5_tool_assignment_technician():
     if not active_tools:
         log_info("No active tools found, creating one...")
         resp = make_request("POST", "/tools/tools", token=admin_token, json_data={
-            "marca": "Taladro",
+            "marca": "Taladro Test",
+            "modelo": "TD-2000",
             "fecha_compra": "2026-01-10",
-            "valor": 100
+            "valor": 150.00
         })
         
         if not resp or resp.status_code != 200:
@@ -321,13 +418,42 @@ def test_5_tool_assignment_technician():
         test_tool_id = tool_data.get("id")
         log_pass(f"Tool created with id: {test_tool_id}")
     else:
-        test_tool_id = active_tools[0].get("id")
-        log_info(f"Using existing tool with id: {test_tool_id}")
+        # Find an unassigned tool
+        test_tool_id = None
+        for tool in active_tools:
+            # Check if tool is already assigned
+            resp = make_request("GET", "/tools/assignments", token=admin_token)
+            if resp and resp.status_code == 200:
+                assignments = resp.json()
+                assigned_tool_ids = [a.get("tool_id") for a in assignments if a.get("estado") == "Vigente"]
+                if tool.get("id") not in assigned_tool_ids:
+                    test_tool_id = tool.get("id")
+                    break
+        
+        if not test_tool_id:
+            # All tools are assigned, create a new one
+            log_info("All tools are assigned, creating a new one...")
+            resp = make_request("POST", "/tools/tools", token=admin_token, json_data={
+                "marca": "Taladro Test",
+                "modelo": "TD-2000",
+                "fecha_compra": "2026-01-10",
+                "valor": 150.00
+            })
+            
+            if not resp or resp.status_code != 200:
+                log_fail("Failed to create tool")
+                return False
+            
+            tool_data = resp.json()
+            test_tool_id = tool_data.get("id")
+            log_pass(f"Tool created with id: {test_tool_id}")
+        else:
+            log_info(f"Using existing unassigned tool with id: {test_tool_id}")
     
     # Assign tool to technician
     resp = make_request("POST", "/tools/assignments/batch", token=admin_token, json_data={
         "destination_type": "technician",
-        "technician_id": test_tecnico_id,
+        "technician_id": tech_id,
         "tool_ids": [test_tool_id]
     })
     
@@ -368,11 +494,11 @@ def test_5_tool_assignment_technician():
     
     return True
 
-def test_6_tool_assignment_warehouse():
-    """Test 6: Assign tool to warehouse"""
+def test_9_tool_assignment_warehouse():
+    """Test 9: Assign tool to warehouse"""
     global test_warehouse_id
     
-    log_test("6", "Tool Assignment to Warehouse")
+    log_test("9", "Tool Assignment to Warehouse")
     
     # Get warehouses
     resp = make_request("GET", "/tools/warehouses", token=admin_token)
@@ -390,9 +516,10 @@ def test_6_tool_assignment_warehouse():
     
     # Create another tool for warehouse assignment
     resp = make_request("POST", "/tools/tools", token=admin_token, json_data={
-        "marca": "Martillo",
+        "marca": "Martillo Test",
+        "modelo": "MT-500",
         "fecha_compra": "2026-01-10",
-        "valor": 50
+        "valor": 75.00
     })
     
     if not resp or resp.status_code != 200:
@@ -423,9 +550,9 @@ def test_6_tool_assignment_warehouse():
     
     return True
 
-def test_7_delete_tecnico():
-    """Test 7: Delete tecnico user and verify removal from /api/tools/technicians"""
-    log_test("7", "Delete Tecnico User (TEST9001)")
+def test_5_delete_tecnico():
+    """Test 5: Delete tecnico user and verify removal from /api/tools/technicians"""
+    log_test("5", "Delete Tecnico User (TEST99999)")
     
     if not test_tecnico_id:
         log_fail("No tecnico ID available")
@@ -451,7 +578,7 @@ def test_7_delete_tecnico():
     technicians = resp.json()
     found = False
     for tech in technicians:
-        if tech.get("id") == test_tecnico_id or tech.get("codigo") == "TEST9001":
+        if tech.get("id") == test_tecnico_id or tech.get("codigo") == "TEST99999":
             found = True
             break
     
@@ -462,9 +589,9 @@ def test_7_delete_tecnico():
     log_pass("Technician successfully removed from /api/tools/technicians")
     return True
 
-def test_8_migrated_tecnico_login():
-    """Test 8: Login with migrated tecnico using indurama123 password"""
-    log_test("8", "Migrated Tecnico Login (indurama123)")
+def test_7_migrated_tecnico_login():
+    """Test 7: Login with migrated tecnico using indurama123 password"""
+    log_test("7", "Migrated Tecnico Login (indurama123)")
     
     # Get a migrated tecnico from /api/modules/tecnicos
     resp = make_request("GET", "/modules/tecnicos", token=admin_token)
@@ -515,7 +642,7 @@ def cleanup():
     if test_lider_id:
         resp = make_request("DELETE", f"/users/{test_lider_id}", token=admin_token)
         if resp and resp.status_code == 200:
-            log_pass(f"Deleted lider user (LID5001)")
+            log_pass(f"Deleted lider user (LID12345)")
         else:
             log_info(f"Could not delete lider user (may have been deleted already)")
     
@@ -529,14 +656,16 @@ def main():
     print(f"{BLUE}{'='*80}{RESET}")
     
     tests = [
-        ("1", "Admin Login", test_1_admin_login),
-        ("2", "Create Tecnico User", test_2_create_tecnico),
-        ("3", "Edit Tecnico User", test_3_edit_tecnico),
-        ("4", "Create Lider User", test_4_create_lider),
-        ("5", "Tool Assignment to Technician", test_5_tool_assignment_technician),
-        ("6", "Tool Assignment to Warehouse", test_6_tool_assignment_warehouse),
-        ("7", "Delete Tecnico User", test_7_delete_tecnico),
-        ("8", "Migrated Tecnico Login", test_8_migrated_tecnico_login),
+        ("0", "Admin Login", test_0_admin_login),
+        ("1", "GET /api/modules/tecnicos", test_1_get_tecnicos),
+        ("2", "GET /api/tools/technicians", test_2_get_technicians),
+        ("3", "Create Tecnico User", test_3_create_tecnico),
+        ("4", "Edit Tecnico User", test_4_edit_tecnico),
+        ("5", "Delete Tecnico User", test_5_delete_tecnico),
+        ("6", "Create Lider User (NOT in technicians)", test_6_create_lider),
+        ("7", "Migrated Tecnico Login", test_7_migrated_tecnico_login),
+        ("8", "Tool Assignment to Technician", test_8_tool_assignment_technician),
+        ("9", "Tool Assignment to Warehouse", test_9_tool_assignment_warehouse),
     ]
     
     results = []

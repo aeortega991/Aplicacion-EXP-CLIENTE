@@ -105,6 +105,21 @@
 user_problem_statement: "Control de Flota Vehicular - Fleet management system with authentication, vehicle tracking, and dashboard"
 
 backend:
+  - task: "Unificación de Técnicos - Refactor de Usuarios con documento"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "REFACTOR unificación de técnicos. Cambios backend: (1) Usuarios ahora tienen campo 'documento' (=login username). POST /api/users acepta {documento,name,role,region,ciudad,password} y crea username=documento; login funciona con ese documento. (2) Nuevo rol 'tecnico'. (3) Migración: conductores -> usuarios rol tecnico (52), y espejo en tool_technicians (mismo id). (4) GET /api/modules/tecnicos devuelve usuarios rol tecnico [{id,nombre,documento,ciudad}]. (5) Al crear/editar/eliminar un usuario rol tecnico, se sincroniza db.tool_technicians (mismo id) -> GET /api/tools/technicians debe reflejarlo."
+      - working: true
+        agent: "testing"
+        comment: "ALL 10 TESTS PASSED ✅. Test 0: Admin login (aeortega/admin123) successful (200). Test 1: GET /api/modules/tecnicos returns 52 tecnico users with correct structure {id, nombre, documento, ciudad} (200). Test 2: GET /api/tools/technicians returns 52 technicians with correct structure {id, codigo, nombre, apellido, ciudad} (200). Test 3: Create tecnico user (documento: TEST99999, name: Tecnico Prueba, role: tecnico, ciudad: QUITO) successful (200); user appears in both /api/tools/technicians and /api/modules/tecnicos; login with TEST99999/clave123 works with role=tecnico (200). Test 4: Edit tecnico user (name: Tecnico Editado, ciudad: CUENCA) successful (200); changes reflected in /api/tools/technicians (nombre: Tecnico, apellido: Editado, ciudad: CUENCA) - sync function correctly splits name into nombre (first word) and apellido (remaining words). Test 5: Delete tecnico user successful (200); user removed from /api/tools/technicians. Test 6: Create lider user (documento: LID12345, role: lider, region: R1, ciudad: AMBATO) successful (200); login with LID12345/clave123 works with role=lider (200); lider user correctly does NOT appear in /api/tools/technicians. Test 7: Migrated tecnico login successful - logged in with documento '0924098098' and password 'indurama123' with role=tecnico (200). Test 8: Tool assignment to technician successful (200); assignment shows technician_nombre in /api/tools/reports/current. Test 9: Tool assignment to warehouse successful (200). All authentication, user CRUD, documento-based login, technician mirroring, and tool assignment functionality working correctly."
+
   - task: "Módulo Gastos - Workflow completo de aprobación"
     implemented: true
     working: true
@@ -233,12 +248,11 @@ frontend:
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 3
-  run_ui: true
+  test_sequence: 4
+  run_ui: false
 
 test_plan:
-  current_focus:
-    - "Unificación de Técnicos y refactor de Usuarios (documento)"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -254,3 +268,5 @@ agent_communication:
     message: "EXPENSES MODULE TESTING COMPLETED - ALL 9 TESTS PASSED ✅. Comprehensive testing of all expenses endpoints completed successfully. Test results: (1) Meta endpoint returns correct data structure with 33 accounts, regions R1/R2, 14 cities, 7 estados. (2) Expense creation works correctly with proper estado, numero format (SG-XXXX), and region assignment. (3) Full workflow WITH budget completed successfully through all 5 stages (coordinador->tesorero->líder->coordinador final->gerente) with correct estado transitions. (4) Workflow WITHOUT budget correctly skips tesorero stage. (5) Rejection flow works with proper rechazado_etapa and rechazo_motivo tracking. (6) Region scope restrictions work perfectly - coordinador R2 cannot see/act on R1 expenses (403), líderes only see own expenses. (7) Role restrictions enforced correctly - all unauthorized actions return 403. (8) PDF generation works (3747 bytes, application/pdf). (9) Dashboard returns complete KPI structure with filters working correctly. NO ISSUES FOUND. All authentication, authorization, workflow transitions, region scoping, and role restrictions working as expected."
   - agent: "main"
     message: "REFACTOR unificación de técnicos. Cambios backend a probar: (1) Usuarios ahora tienen campo 'documento' (=login username). POST /api/users acepta {documento,name,role,region,ciudad,password} y crea username=documento; login funciona con ese documento. (2) Nuevo rol 'tecnico'. (3) Migración: conductores -> usuarios rol tecnico (52), y espejo en tool_technicians (mismo id). (4) GET /api/modules/tecnicos devuelve usuarios rol tecnico [{id,nombre,documento,ciudad}]. (5) Al crear/editar/eliminar un usuario rol tecnico, se sincroniza db.tool_technicians (mismo id) -> GET /api/tools/technicians debe reflejarlo. Probar: (a) crear usuario role=tecnico con documento X -> aparece en GET /api/tools/technicians y GET /api/modules/tecnicos; login con X + password funciona. (b) editar su nombre/ciudad -> se refleja en /api/tools/technicians. (c) eliminarlo -> desaparece de /api/tools/technicians. (d) crear usuario role=lider con documento -> login por documento OK. (e) asignación de herramientas: POST /api/tools/assignments/batch con destination_type='technician' y technician_id = id de un usuario tecnico existente (tómalo de /api/tools/technicians) + tool_ids (usa GET /api/tools/tools; si no hay, crea una con POST /api/tools/tools) -> 200; y destination_type='warehouse' con warehouse_id de GET /api/tools/warehouses -> 200. (f) GET /api/tools/assignments/current o report_current debe mostrar technician_nombre para asignaciones a técnicos. Credenciales admin aeortega/admin123. Técnicos migrados usan password indurama123. NO probar Vehículos CRUD ni Gastos (ya probados)."
+  - agent: "testing"
+    message: "TECHNICIAN UNIFICATION REFACTOR TESTING COMPLETED - ALL 10 TESTS PASSED ✅. Comprehensive testing of the unified user/technician system completed successfully. Test results: (0) Admin login successful (200). (1) GET /api/modules/tecnicos returns 52 tecnico users with correct structure {id, nombre, documento, ciudad} (200). (2) GET /api/tools/technicians returns 52 technicians with correct structure {id, codigo, nombre, apellido, ciudad} (200). (3) Create tecnico user successful - user created with documento TEST99999, appears in both /api/tools/technicians and /api/modules/tecnicos, login with TEST99999/clave123 works with role=tecnico (all 200). (4) Edit tecnico user successful - name and ciudad updated, changes correctly reflected in /api/tools/technicians (sync function splits name into nombre/apellido as designed) (200). (5) Delete tecnico user successful - user removed from /api/tools/technicians (200). (6) Create lider user successful - user created with documento LID12345, login works with role=lider, correctly does NOT appear in /api/tools/technicians (200). (7) Migrated tecnico login successful - logged in with documento '0924098098' and password 'indurama123' with role=tecnico (200). (8) Tool assignment to technician successful - assignment created, technician_nombre shows in /api/tools/reports/current (200). (9) Tool assignment to warehouse successful - assignment created (200). NO ISSUES FOUND. All authentication, user CRUD, documento-based login, technician mirroring (sync function working correctly), and tool assignment functionality working as expected."

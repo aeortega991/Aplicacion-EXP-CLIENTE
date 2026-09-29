@@ -2968,6 +2968,110 @@ async def expenses_dashboard(
         "tiempos_etapa": tiempos_etapa,
     }
 
+@api.get("/expenses/export")
+async def export_expenses(
+    ciudad: Optional[str] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Exporta a Excel las solicitudes (scope por rol) filtrando por ciudad y fecha de creación."""
+    q = _expense_scope_query(user) or {}
+    if ciudad:
+        q["ciudad"] = ciudad.strip().upper()
+    docs = await db.expenses.find(q, {"_id": 0}).sort("seq", 1).to_list(20000)
+
+    def _in_range(d):
+        f = str(d.get("created_at") or "")[:10]
+        if desde and f < desde:
+            return False
+        if hasta and f > hasta:
+            return False
+        return True
+    docs = [d for d in docs if _in_range(d)]
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    import io
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Solicitudes"
+    headers = [
+        "N°", "Estado", "Solicitante", "Ciudad", "Región", "Cuenta código", "Cuenta / Categoría",
+        "Proveedor", "Fecha solicitud", "Monto cotización", "¿Requiere presupuesto?",
+        "Presupuesto asignado", "Monto presupuesto", "Asignado por",
+        "URL cotización", "URL factura", "N° SOLPED", "Fecha gasto", "Monto factura", "Diferencia (fact-cot)",
+        "Aprob. coordinador", "Aprob. gerencia", "Etapa rechazo", "Motivo rechazo", "Fecha creación",
+    ]
+    ws.append(headers)
+    header_fill = PatternFill("solid", fgColor="111827")
+    for col, _ in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = header_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+    def _num(v):
+        try:
+            return round(float(v), 2)
+        except Exception:
+            return None
+
+    for d in docs:
+        dif = None
+        if d.get("monto_factura") is not None:
+            try:
+                dif = round(float(d.get("monto_factura") or 0) - float(d.get("monto") or 0), 2)
+            except Exception:
+                dif = None
+        ws.append([
+            d.get("numero"),
+            ESTADO_LABELS.get(d.get("estado"), d.get("estado")),
+            d.get("solicitante_nombre"),
+            d.get("ciudad"),
+            d.get("region"),
+            d.get("cuenta_codigo"),
+            d.get("cuenta_nombre"),
+            d.get("proveedor"),
+            d.get("fecha"),
+            _num(d.get("monto")),
+            "Sí" if d.get("necesita_presupuesto") else "No",
+            "Sí" if d.get("presupuesto_asignado") else "No",
+            _num(d.get("presupuesto_monto")),
+            d.get("presupuesto_by"),
+            d.get("url_cotizacion"),
+            d.get("url_factura"),
+            d.get("numero_solped"),
+            d.get("fecha_gasto"),
+            _num(d.get("monto_factura")),
+            dif,
+            d.get("coord_final_by"),
+            d.get("gerente_by"),
+            d.get("rechazado_etapa"),
+            d.get("rechazo_motivo"),
+            str(d.get("created_at") or "")[:19].replace("T", " "),
+        ])
+
+    # ancho de columnas
+    widths = [10, 26, 26, 14, 8, 14, 24, 22, 14, 16, 16, 16, 16, 16, 30, 30, 14, 14, 14, 16, 18, 18, 22, 30, 20]
+    from openpyxl.utils import get_column_letter
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"gastos_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+
 
 async def _get_expense_or_404(expense_id: str, user: dict) -> dict:
     exp = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
