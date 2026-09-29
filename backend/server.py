@@ -89,13 +89,16 @@ class LoginIn(BaseModel):
     username: str
     password: str
 
+ALLOWED_ROLES = ("admin", "user", "coordinador", "lider", "tesorero", "gerente")
+
 class UserCreate(BaseModel):
     username: str
     password: str
     name: str
     email: Optional[str] = None
-    role: str = "user"  # 'admin' or 'user'
+    role: str = "user"  # admin | user | coordinador | lider | tesorero | gerente
     ciudad: Optional[str] = None
+    region: Optional[str] = None  # 'R1' | 'R2' | None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -103,6 +106,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     password: Optional[str] = None
     ciudad: Optional[str] = None
+    region: Optional[str] = None
 
 class UserOut(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -133,6 +137,7 @@ async def login(payload: LoginIn):
             "email": user.get("email"),
             "role": user["role"],
             "ciudad": user.get("ciudad"),
+            "region": user.get("region"),
         },
     }
 
@@ -152,7 +157,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
     exists = await db.users.find_one({"username": username})
     if exists:
         raise HTTPException(status_code=400, detail="Nombre de usuario ya existe")
-    if payload.role not in ("admin", "user"):
+    if payload.role not in ALLOWED_ROLES:
         raise HTTPException(status_code=400, detail="Rol inválido")
     doc = {
         "id": str(uuid.uuid4()),
@@ -161,6 +166,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
         "email": payload.email,
         "role": payload.role,
         "ciudad": (payload.ciudad or "").strip() or None,
+        "region": (payload.region or "").strip().upper() or None,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -175,11 +181,13 @@ async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(re
     if payload.name is not None: update["name"] = payload.name
     if payload.email is not None: update["email"] = payload.email
     if payload.role is not None:
-        if payload.role not in ("admin", "user"):
+        if payload.role not in ALLOWED_ROLES:
             raise HTTPException(status_code=400, detail="Rol inválido")
         update["role"] = payload.role
     if payload.ciudad is not None:
         update["ciudad"] = (payload.ciudad or "").strip() or None
+    if payload.region is not None:
+        update["region"] = (payload.region or "").strip().upper() or None
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     if not update:
@@ -1152,6 +1160,7 @@ async def seed_admin_and_data():
 async def _startup():
     await seed_admin_and_data()
     await _seed_warehouses()
+    await _seed_expenses_module()
 
 @app.on_event("shutdown")
 async def _shutdown():
@@ -2443,6 +2452,640 @@ async def technician_history_pdf(technician_id: str, user: dict = Depends(get_cu
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="historial_{tech_code}.pdf"'},
     )
+
+# ============================================================================
+# MÓDULO GASTOS — Aprobación de Gastos (workflow multi-etapa)
+# ============================================================================
+import random as _random
+
+REGION_CITIES = {
+    "R1": ["QUITO", "AMBATO", "CUENCA", "LOJA", "SANTO DOMINGO", "LA MANA"],
+    "R2": ["GUAYAQUIL", "MANTA", "MACHALA", "QUEVEDO", "MILAGRO", "BABAHOYO", "DURAN", "LA LIBERTAD"],
+}
+ALL_EXPENSE_CITIES = REGION_CITIES["R1"] + REGION_CITIES["R2"]
+
+EXPENSE_ACCOUNTS = [
+    ("Agua", "61035001"), ("Alquiler de Vehículo", "61020004"), ("Arriendo Inmuebles", "61020000"),
+    ("Combustible y lub", "61040000"), ("Correspondencia", "61085000"), ("Energía Eléctrica", "61035000"),
+    ("Fletes", "61025000"), ("Formularios imp", "61045001"), ("Garantías", "61030000"),
+    ("Gastos de Viaje Loc", "61015000"), ("Gastos No deducibles", "61175001"), ("Honorarios Not y Reg", "61010002"),
+    ("Implem de Seguridad", "61045004"), ("Impuesto vehicular", "61115007"), ("Impuestos y Contrib", "61115002"),
+    ("Int Vehic Der Uso", "61160002"), ("Inter Act Der Uso", "61160001"), ("Mat y Sum Directos", "61045007"),
+    ("Mat y Sum Indirectos", "61045008"), ("Mat y Sum Repuestos", "61045006"), ("Materiales de Limp", "61045002"),
+    ("Programas y Software", "61090002"), ("Rep Mercaderia", "61030001"), ("Rep y mant de Veh", "61080004"),
+    ("Rep y mant Edificios", "61080000"), ("Reproceso", "61045005"), ("Seguridad y Vigil", "61085001"),
+    ("Servicio de limpieza", "61085002"), ("Servicios bancarios", "61135000"), ("Sum Div y Herram Men", "61045003"),
+    ("Suministros de Of", "61045000"), ("Telefonía celular", "61035002"), ("Telefonía fija", "61035005"),
+]
+
+# username, name, email, role, region
+EXPENSE_SEED_USERS = [
+    ("jullaguari", "ULLAGUARI VALAREZO JIMMY FABIAN", "jullaguari@servihogar.com.ec", "coordinador", "R1"),
+    ("ambato", "ACOSTA PAZMIÑO MARCELA ALEXANDRA", "ambato@servihogar.com.ec", "lider", "R2"),
+    ("tarias", "ARIAS BRAVO TANIA MERCEDES", "tarias@servihogar.com.ec", "coordinador", "R2"),
+    ("jelaje", "ELAJE MAYEA JENNIFER DENISSE", "jelaje@indurama.com", "lider", "R1"),
+    ("tgranda", "GRANDA TORRES TATIANA ANABELL", "tgranda@servihogar.com.ec", "lider", "R1"),
+    ("pmarin", "MARIN TORRES PIEDAD ESTHELA", "pmarin@servihogar.com.ec", "lider", "R2"),
+    ("memejia", "MEJIA DAVILA MARIUXI ESTEFANIA", "memejia@indurama.com", "tesorero", None),
+    ("gerente", "GERENTE GENERAL", "gerencia@indurama.com", "gerente", None),
+]
+GENERIC_PASSWORD = "indurama123"
+
+# Estados del flujo
+E_PEND_COORD = "pend_coordinador"
+E_PEND_PRESUP = "pend_presupuesto"
+E_PEND_FACTURA = "pend_factura"
+E_PEND_COORD_FINAL = "pend_aprob_coordinador"
+E_PEND_GERENCIA = "pend_aprob_gerencia"
+E_APROBADO = "aprobado"
+E_RECHAZADO = "rechazado"
+
+ESTADO_LABELS = {
+    E_PEND_COORD: "Pendiente aprobación coordinador",
+    E_PEND_PRESUP: "Pendiente asignación presupuesto",
+    E_PEND_FACTURA: "Pendiente carga de factura",
+    E_PEND_COORD_FINAL: "Pendiente aprobación final coordinador",
+    E_PEND_GERENCIA: "Pendiente aprobación gerencia",
+    E_APROBADO: "Aprobado",
+    E_RECHAZADO: "Rechazado",
+}
+
+# Etiqueta de la etapa (tiempo) que corresponde a cada transición de salida
+STAGE_LABELS = {
+    E_PEND_COORD: "Aprobación coordinador",
+    E_PEND_PRESUP: "Asignación presupuesto",
+    E_PEND_FACTURA: "Carga de factura",
+    E_PEND_COORD_FINAL: "Aprobación final coordinador",
+    E_PEND_GERENCIA: "Aprobación gerencia",
+}
+
+
+async def _seed_expenses_module():
+    # Cuentas contables
+    if await db.expense_accounts.count_documents({}) == 0:
+        await db.expense_accounts.insert_many([
+            {"id": str(uuid.uuid4()), "nombre": n, "codigo": c} for n, c in EXPENSE_ACCOUNTS
+        ])
+    # Usuarios del flujo
+    rnd = _random.Random(42)
+    for username, name, email, role, region in EXPENSE_SEED_USERS:
+        if await db.users.find_one({"username": username}):
+            continue
+        if region in REGION_CITIES:
+            ciudad = rnd.choice(REGION_CITIES[region])
+        else:
+            ciudad = rnd.choice(ALL_EXPENSE_CITIES)
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "name": name,
+            "email": email,
+            "role": role,
+            "region": region,
+            "ciudad": ciudad,
+            "password_hash": hash_password(GENERIC_PASSWORD),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    await db.expenses.create_index("id", unique=True)
+
+
+def _region_of_city(ciudad: Optional[str]) -> Optional[str]:
+    if not ciudad:
+        return None
+    c = str(ciudad).strip().upper()
+    for reg, cities in REGION_CITIES.items():
+        if c in cities:
+            return reg
+    return None
+
+
+async def _expense_notify(exp: dict, username: Optional[str], subject: str, body_lines: list):
+    """Intenta enviar email al usuario indicado. Inactivo si no hay EMAIL_KEY (no bloquea)."""
+    try:
+        if not username:
+            return
+        u = await db.users.find_one({"username": username}, {"email": 1})
+        to = (u or {}).get("email")
+        if not to:
+            return
+        html = "<div style='font-family:Arial,sans-serif'>" + "".join(
+            f"<p>{escape(str(l))}</p>" for l in body_lines
+        ) + "</div>"
+        await _send_email(to=to, subject=subject, html=html)
+    except Exception as e:
+        logging.info(f"[expenses] email skip: {e}")
+
+
+def _expense_scope_query(user: dict) -> Optional[dict]:
+    """Devuelve el filtro Mongo según el rol. None = ver todo."""
+    role = user.get("role")
+    if role in ("admin", "gerente", "tesorero"):
+        return {}
+    if role == "coordinador":
+        return {"region": user.get("region")}
+    # lider / user -> solo propios
+    return {"solicitante_id": user.get("id")}
+
+
+def _public_expense(exp: dict) -> dict:
+    exp = dict(exp)
+    exp.pop("_id", None)
+    exp["estado_label"] = ESTADO_LABELS.get(exp.get("estado"), exp.get("estado"))
+    return exp
+
+
+class ExpenseCreate(BaseModel):
+    cuenta_codigo: str
+    proveedor: str
+    fecha: str  # ISO date de la solicitud/gasto estimado
+    monto: float
+    necesita_presupuesto: bool = False
+    url_cotizacion: Optional[str] = None
+    descripcion: Optional[str] = None
+    ciudad: Optional[str] = None  # solo admin puede fijarla; caso contrario la del usuario
+
+
+class DecisionIn(BaseModel):
+    decision: str  # 'aprobar' | 'rechazar'
+    comentario: Optional[str] = None
+
+
+class BudgetIn(BaseModel):
+    monto_presupuesto: Optional[float] = None
+    comentario: Optional[str] = None
+
+
+class InvoiceIn(BaseModel):
+    url_factura: str
+    numero_solped: str
+    fecha_gasto: str
+    monto_factura: float
+
+
+@api.get("/expenses/meta")
+async def expenses_meta(user: dict = Depends(get_current_user)):
+    accounts = await db.expense_accounts.find({}, {"_id": 0}).sort("nombre", 1).to_list(500)
+    return {
+        "accounts": accounts,
+        "regions": REGION_CITIES,
+        "cities": ALL_EXPENSE_CITIES,
+        "estados": ESTADO_LABELS,
+    }
+
+
+@api.post("/expenses")
+async def create_expense(payload: ExpenseCreate, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("lider", "admin", "user"):
+        raise HTTPException(status_code=403, detail="Solo el usuario líder puede crear solicitudes")
+    acc = await db.expense_accounts.find_one({"codigo": payload.cuenta_codigo}, {"_id": 0})
+    if not acc:
+        raise HTTPException(status_code=400, detail="Cuenta contable inválida")
+    # Ciudad / región
+    if user.get("role") == "admin" and payload.ciudad:
+        ciudad = payload.ciudad.strip().upper()
+    else:
+        ciudad = (user.get("ciudad") or "").strip().upper() or None
+    if not ciudad:
+        raise HTTPException(status_code=400, detail="El usuario no tiene ciudad asignada")
+    region = user.get("region") or _region_of_city(ciudad)
+
+    # Numero secuencial
+    last = await db.expenses.find_one({}, sort=[("seq", -1)])
+    seq = (last.get("seq", 0) + 1) if last else 1
+    now = datetime.now(timezone.utc).isoformat()
+    estado = E_PEND_COORD
+    doc = {
+        "id": str(uuid.uuid4()),
+        "seq": seq,
+        "numero": f"SG-{seq:04d}",
+        "solicitante_id": user.get("id"),
+        "solicitante_nombre": user.get("name"),
+        "solicitante_username": user.get("username"),
+        "ciudad": ciudad,
+        "region": region,
+        "cuenta_codigo": acc["codigo"],
+        "cuenta_nombre": acc["nombre"],
+        "proveedor": payload.proveedor.strip(),
+        "fecha": payload.fecha,
+        "monto": round(float(payload.monto), 2),
+        "necesita_presupuesto": bool(payload.necesita_presupuesto),
+        "url_cotizacion": (payload.url_cotizacion or "").strip() or None,
+        "descripcion": (payload.descripcion or "").strip() or None,
+        "estado": estado,
+        # etapas
+        "presupuesto_asignado": False,
+        "presupuesto_monto": None,
+        "presupuesto_by": None,
+        "presupuesto_fecha": None,
+        "presupuesto_comentario": None,
+        "url_factura": None,
+        "numero_solped": None,
+        "fecha_gasto": None,
+        "monto_factura": None,
+        "coord_final_by": None,
+        "coord_final_fecha": None,
+        "coord_final_comentario": None,
+        "gerente_by": None,
+        "gerente_fecha": None,
+        "gerente_comentario": None,
+        "rechazo_motivo": None,
+        "rechazado_por": None,
+        "rechazado_etapa": None,
+        "created_at": now,
+        "updated_at": now,
+        "history": [
+            {"estado": estado, "accion": "creada", "usuario": user.get("username"), "at": now, "comentario": None},
+        ],
+    }
+    await db.expenses.insert_one(doc)
+    await _expense_notify(doc, None, "Nueva solicitud de gasto", [])
+    return _public_expense(doc)
+
+
+@api.get("/expenses")
+async def list_expenses(
+    estado: Optional[str] = None,
+    ciudad: Optional[str] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q = _expense_scope_query(user)
+    if q is None:
+        q = {}
+    if estado:
+        q["estado"] = estado
+    if ciudad:
+        q["ciudad"] = ciudad.strip().upper()
+    docs = await db.expenses.find(q, {"_id": 0}).sort("seq", -1).to_list(5000)
+    # Filtro por fecha de solicitud
+    def _in_range(d):
+        f = d.get("fecha") or d.get("created_at") or ""
+        f = str(f)[:10]
+        if desde and f < desde:
+            return False
+        if hasta and f > hasta:
+            return False
+        return True
+    docs = [_public_expense(d) for d in docs if _in_range(d)]
+    return docs
+
+
+@api.get("/expenses/dashboard")
+async def expenses_dashboard(
+    ciudad: Optional[str] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q = _expense_scope_query(user) or {}
+    if ciudad:
+        q["ciudad"] = ciudad.strip().upper()
+    docs = await db.expenses.find(q, {"_id": 0}).to_list(10000)
+
+    def _in_range(d):
+        f = str(d.get("fecha") or d.get("created_at") or "")[:10]
+        if desde and f < desde:
+            return False
+        if hasta and f > hasta:
+            return False
+        return True
+    docs = [d for d in docs if _in_range(d)]
+
+    monto_total = 0.0
+    monto_aprobado = 0.0
+    aprobados = rechazados = pendientes = 0
+    por_categoria: Dict[str, Dict[str, Any]] = {}
+    por_ciudad: Dict[str, Dict[str, Any]] = {}
+    por_estado: Dict[str, int] = {}
+    # tiempos por etapa
+    stage_acc: Dict[str, Dict[str, float]] = {}
+
+    for d in docs:
+        m = float(d.get("monto") or 0)
+        monto_total += m
+        est = d.get("estado")
+        por_estado[est] = por_estado.get(est, 0) + 1
+        if est == E_APROBADO:
+            aprobados += 1
+            monto_aprobado += float(d.get("monto_factura") or d.get("monto") or 0)
+        elif est == E_RECHAZADO:
+            rechazados += 1
+        else:
+            pendientes += 1
+
+        cat = d.get("cuenta_nombre") or "Sin categoría"
+        pc = por_categoria.setdefault(cat, {"categoria": cat, "monto": 0.0, "count": 0})
+        pc["monto"] += m
+        pc["count"] += 1
+
+        ci = d.get("ciudad") or "Sin ciudad"
+        cc = por_ciudad.setdefault(ci, {"ciudad": ci, "monto": 0.0, "count": 0, "aprobados": 0, "rechazados": 0})
+        cc["monto"] += m
+        cc["count"] += 1
+        if est == E_APROBADO:
+            cc["aprobados"] += 1
+        elif est == E_RECHAZADO:
+            cc["rechazados"] += 1
+
+        # tiempos entre transiciones de history
+        hist = sorted(d.get("history") or [], key=lambda h: h.get("at") or "")
+        for i in range(len(hist) - 1):
+            frm = hist[i]
+            to = hist[i + 1]
+            label = STAGE_LABELS.get(frm.get("estado"))
+            if not label:
+                continue
+            try:
+                t0 = datetime.fromisoformat(frm.get("at"))
+                t1 = datetime.fromisoformat(to.get("at"))
+                hours = (t1 - t0).total_seconds() / 3600.0
+            except Exception:
+                continue
+            if hours < 0:
+                continue
+            sa = stage_acc.setdefault(label, {"horas": 0.0, "count": 0})
+            sa["horas"] += hours
+            sa["count"] += 1
+
+    tiempos_etapa = [
+        {"etapa": lbl, "promedio_horas": round(v["horas"] / v["count"], 2) if v["count"] else 0, "count": v["count"]}
+        for lbl, v in stage_acc.items()
+    ]
+    # ordenar por el orden lógico del flujo
+    order = list(STAGE_LABELS.values())
+    tiempos_etapa.sort(key=lambda x: order.index(x["etapa"]) if x["etapa"] in order else 99)
+
+    return {
+        "kpis": {
+            "total": len(docs),
+            "monto_total": round(monto_total, 2),
+            "monto_aprobado": round(monto_aprobado, 2),
+            "aprobados": aprobados,
+            "rechazados": rechazados,
+            "pendientes": pendientes,
+        },
+        "por_categoria": sorted(por_categoria.values(), key=lambda x: -x["monto"]),
+        "por_ciudad": sorted(por_ciudad.values(), key=lambda x: -x["monto"]),
+        "por_estado": [{"estado": k, "label": ESTADO_LABELS.get(k, k), "count": v} for k, v in por_estado.items()],
+        "tiempos_etapa": tiempos_etapa,
+    }
+
+
+async def _get_expense_or_404(expense_id: str, user: dict) -> dict:
+    exp = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    # scope check
+    q = _expense_scope_query(user)
+    if q:
+        if "region" in q and exp.get("region") != q["region"]:
+            raise HTTPException(status_code=403, detail="Fuera de tu región")
+        if "solicitante_id" in q and exp.get("solicitante_id") != q["solicitante_id"]:
+            raise HTTPException(status_code=403, detail="Sin acceso a esta solicitud")
+    return exp
+
+
+@api.get("/expenses/{expense_id}")
+async def get_expense(expense_id: str, user: dict = Depends(get_current_user)):
+    exp = await _get_expense_or_404(expense_id, user)
+    return _public_expense(exp)
+
+
+def _push_history(update_set: dict, exp: dict, estado: str, accion: str, username: str, comentario: Optional[str]):
+    now = datetime.now(timezone.utc).isoformat()
+    update_set["estado"] = estado
+    update_set["updated_at"] = now
+    hist = exp.get("history") or []
+    hist.append({"estado": estado, "accion": accion, "usuario": username, "at": now, "comentario": comentario})
+    update_set["history"] = hist
+    return now
+
+
+@api.post("/expenses/{expense_id}/coordinator-decision")
+async def coordinator_decision(expense_id: str, payload: DecisionIn, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("coordinador", "admin"):
+        raise HTTPException(status_code=403, detail="Requiere rol coordinador")
+    exp = await _get_expense_or_404(expense_id, user)
+    if exp.get("estado") != E_PEND_COORD:
+        raise HTTPException(status_code=400, detail="La solicitud no está pendiente de aprobación del coordinador")
+    upd: Dict[str, Any] = {}
+    if payload.decision == "rechazar":
+        _push_history(upd, exp, E_RECHAZADO, "rechazada_coordinador", user.get("username"), payload.comentario)
+        upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación coordinador"})
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada por el coordinador.", payload.comentario or ""])
+        return {"ok": True, "estado": E_RECHAZADO}
+    elif payload.decision == "aprobar":
+        nuevo = E_PEND_PRESUP if exp.get("necesita_presupuesto") else E_PEND_FACTURA
+        _push_history(upd, exp, nuevo, "aprobada_coordinador", user.get("username"), payload.comentario)
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        return {"ok": True, "estado": nuevo}
+    raise HTTPException(status_code=400, detail="Decisión inválida")
+
+
+@api.post("/expenses/{expense_id}/assign-budget")
+async def assign_budget(expense_id: str, payload: BudgetIn, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("tesorero", "admin"):
+        raise HTTPException(status_code=403, detail="Requiere rol tesorero")
+    exp = await _get_expense_or_404(expense_id, user)
+    if exp.get("estado") != E_PEND_PRESUP:
+        raise HTTPException(status_code=400, detail="La solicitud no está pendiente de asignación de presupuesto")
+    now = datetime.now(timezone.utc).isoformat()
+    upd: Dict[str, Any] = {
+        "presupuesto_asignado": True,
+        "presupuesto_monto": round(float(payload.monto_presupuesto), 2) if payload.monto_presupuesto is not None else exp.get("monto"),
+        "presupuesto_by": user.get("username"),
+        "presupuesto_fecha": now,
+        "presupuesto_comentario": payload.comentario,
+    }
+    _push_history(upd, exp, E_PEND_FACTURA, "presupuesto_asignado", user.get("username"), payload.comentario)
+    await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+    await _expense_notify(exp, exp.get("solicitante_username"), f"Presupuesto asignado {exp['numero']}", [f"Se asignó el presupuesto de la solicitud {exp['numero']}. Ya puedes cargar la factura."])
+    return {"ok": True, "estado": E_PEND_FACTURA}
+
+
+@api.post("/expenses/{expense_id}/invoice")
+async def upload_invoice(expense_id: str, payload: InvoiceIn, user: dict = Depends(get_current_user)):
+    exp = await _get_expense_or_404(expense_id, user)
+    if user.get("role") not in ("admin",) and exp.get("solicitante_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Solo el solicitante puede cargar la factura")
+    if exp.get("estado") != E_PEND_FACTURA:
+        raise HTTPException(status_code=400, detail="La solicitud no está en etapa de carga de factura")
+    upd: Dict[str, Any] = {
+        "url_factura": payload.url_factura.strip(),
+        "numero_solped": payload.numero_solped.strip(),
+        "fecha_gasto": payload.fecha_gasto,
+        "monto_factura": round(float(payload.monto_factura), 2),
+    }
+    _push_history(upd, exp, E_PEND_COORD_FINAL, "factura_cargada", user.get("username"), None)
+    await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+    return {"ok": True, "estado": E_PEND_COORD_FINAL}
+
+
+@api.post("/expenses/{expense_id}/coordinator-final")
+async def coordinator_final(expense_id: str, payload: DecisionIn, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("coordinador", "admin"):
+        raise HTTPException(status_code=403, detail="Requiere rol coordinador")
+    exp = await _get_expense_or_404(expense_id, user)
+    if exp.get("estado") != E_PEND_COORD_FINAL:
+        raise HTTPException(status_code=400, detail="La solicitud no está pendiente de aprobación final del coordinador")
+    now = datetime.now(timezone.utc).isoformat()
+    upd: Dict[str, Any] = {"coord_final_by": user.get("username"), "coord_final_fecha": now, "coord_final_comentario": payload.comentario}
+    if payload.decision == "rechazar":
+        _push_history(upd, exp, E_RECHAZADO, "rechazada_coordinador_final", user.get("username"), payload.comentario)
+        upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación final coordinador"})
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada en la comparación cotización/factura.", payload.comentario or ""])
+        return {"ok": True, "estado": E_RECHAZADO}
+    elif payload.decision == "aprobar":
+        _push_history(upd, exp, E_PEND_GERENCIA, "aprobada_coordinador_final", user.get("username"), payload.comentario)
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        return {"ok": True, "estado": E_PEND_GERENCIA}
+    raise HTTPException(status_code=400, detail="Decisión inválida")
+
+
+@api.post("/expenses/{expense_id}/manager-decision")
+async def manager_decision(expense_id: str, payload: DecisionIn, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("gerente", "admin"):
+        raise HTTPException(status_code=403, detail="Requiere rol gerente")
+    exp = await _get_expense_or_404(expense_id, user)
+    if exp.get("estado") != E_PEND_GERENCIA:
+        raise HTTPException(status_code=400, detail="La solicitud no está pendiente de aprobación de gerencia")
+    now = datetime.now(timezone.utc).isoformat()
+    upd: Dict[str, Any] = {"gerente_by": user.get("username"), "gerente_fecha": now, "gerente_comentario": payload.comentario}
+    if payload.decision == "rechazar":
+        _push_history(upd, exp, E_RECHAZADO, "rechazada_gerencia", user.get("username"), payload.comentario)
+        upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación gerencia"})
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada por gerencia.", payload.comentario or ""])
+        return {"ok": True, "estado": E_RECHAZADO}
+    elif payload.decision == "aprobar":
+        _push_history(upd, exp, E_APROBADO, "aprobada_gerencia", user.get("username"), payload.comentario)
+        await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} APROBADA", [f"Tu solicitud {exp['numero']} fue aprobada por gerencia."])
+        return {"ok": True, "estado": E_APROBADO}
+    raise HTTPException(status_code=400, detail="Decisión inválida")
+
+
+@api.get("/expenses/{expense_id}/pdf")
+async def expense_pdf(expense_id: str, user: dict = Depends(get_current_user)):
+    exp = await _get_expense_or_404(expense_id, user)
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    import io
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch, leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+    styles = getSampleStyleSheet()
+    h = ParagraphStyle("h", parent=styles["Title"], fontSize=16, textColor=colors.HexColor("#111827"))
+    sub = ParagraphStyle("sub", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6B7280"))
+    sec = ParagraphStyle("sec", parent=styles["Heading2"], fontSize=11, textColor=colors.HexColor("#D92D20"), spaceBefore=12, spaceAfter=4)
+    el = []
+    el.append(Paragraph(f"Solicitud de Gasto {exp.get('numero')}", h))
+    el.append(Paragraph(f"Estado actual: {ESTADO_LABELS.get(exp.get('estado'), exp.get('estado'))} · Generado {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", sub))
+    el.append(Spacer(1, 10))
+
+    def _money(v):
+        try:
+            return f"${float(v):,.2f}"
+        except Exception:
+            return "—"
+
+    def tbl(rows):
+        t = Table(rows, colWidths=[2.2 * inch, 4.6 * inch])
+        t.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#6B7280")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.HexColor("#E5E7EB")),
+        ]))
+        return t
+
+    el.append(Paragraph("Datos de la solicitud", sec))
+    el.append(tbl([
+        ["Solicitante", str(exp.get("solicitante_nombre") or "—")],
+        ["Ciudad / Región", f"{exp.get('ciudad') or '—'} / {exp.get('region') or '—'}"],
+        ["Cuenta contable", f"{exp.get('cuenta_nombre')} ({exp.get('cuenta_codigo')})"],
+        ["Proveedor", str(exp.get("proveedor") or "—")],
+        ["Fecha solicitud", str(exp.get("fecha") or "—")],
+        ["Monto cotización", _money(exp.get("monto"))],
+        ["¿Requiere presupuesto?", "Sí" if exp.get("necesita_presupuesto") else "No"],
+        ["URL cotización", str(exp.get("url_cotizacion") or "—")],
+        ["Descripción", str(exp.get("descripcion") or "—")],
+    ]))
+
+    if exp.get("presupuesto_asignado"):
+        el.append(Paragraph("Asignación de presupuesto", sec))
+        el.append(tbl([
+            ["Monto presupuesto", _money(exp.get("presupuesto_monto"))],
+            ["Asignado por", str(exp.get("presupuesto_by") or "—")],
+            ["Fecha", str(exp.get("presupuesto_fecha") or "—")[:19].replace("T", " ")],
+            ["Comentario", str(exp.get("presupuesto_comentario") or "—")],
+        ]))
+
+    if exp.get("url_factura"):
+        dif = None
+        try:
+            dif = float(exp.get("monto_factura") or 0) - float(exp.get("monto") or 0)
+        except Exception:
+            dif = None
+        el.append(Paragraph("Factura", sec))
+        el.append(tbl([
+            ["URL factura", str(exp.get("url_factura") or "—")],
+            ["N° SOLPED", str(exp.get("numero_solped") or "—")],
+            ["Fecha del gasto", str(exp.get("fecha_gasto") or "—")],
+            ["Monto factura", _money(exp.get("monto_factura"))],
+            ["Diferencia (factura - cotización)", _money(dif) if dif is not None else "—"],
+        ]))
+
+    if exp.get("coord_final_by"):
+        el.append(Paragraph("Aprobación final coordinador", sec))
+        el.append(tbl([
+            ["Coordinador", str(exp.get("coord_final_by"))],
+            ["Fecha", str(exp.get("coord_final_fecha") or "—")[:19].replace("T", " ")],
+            ["Comentario", str(exp.get("coord_final_comentario") or "—")],
+        ]))
+    if exp.get("gerente_by"):
+        el.append(Paragraph("Aprobación gerencia", sec))
+        el.append(tbl([
+            ["Gerente", str(exp.get("gerente_by"))],
+            ["Fecha", str(exp.get("gerente_fecha") or "—")[:19].replace("T", " ")],
+            ["Comentario", str(exp.get("gerente_comentario") or "—")],
+        ]))
+    if exp.get("estado") == E_RECHAZADO:
+        el.append(Paragraph("Rechazo", sec))
+        el.append(tbl([
+            ["Etapa", str(exp.get("rechazado_etapa") or "—")],
+            ["Rechazado por", str(exp.get("rechazado_por") or "—")],
+            ["Motivo", str(exp.get("rechazo_motivo") or "—")],
+        ]))
+
+    el.append(Paragraph("Historial", sec))
+    hrows = [["Fecha", "Acción", "Usuario"]]
+    for hh in (exp.get("history") or []):
+        hrows.append([str(hh.get("at") or "")[:19].replace("T", " "), str(hh.get("accion") or ""), str(hh.get("usuario") or "")])
+    ht = Table(hrows, colWidths=[1.9 * inch, 3.2 * inch, 1.7 * inch])
+    ht.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111827")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#E5E7EB")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    el.append(ht)
+
+    doc.build(el)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{exp.get("numero")}.pdf"'})
+
+
 
 
 app.include_router(api)

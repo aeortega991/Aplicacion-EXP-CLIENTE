@@ -42,6 +42,20 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Admin: `aeortega` / `admin123`
 - User: `operador` / `operador123`
 
+## Test Credentials
+- Admin: `aeortega` / `admin123`
+- User: `operador` / `operador123`
+- Módulo Gastos (clave `indurama123`): coordinador R1 `jullaguari`, coordinador R2 `tarias`, lider R1 `jelaje`/`tgranda`, lider R2 `ambato`/`pmarin`, tesorero `memejia`, gerente `gerente`
+
+## Módulo Gastos — Aprobación de Gastos (Feb 2026)
+- Nuevo hub card "Gastos" + sección `/gastos` (Dashboard + Solicitudes). Layout `GastosLayout`.
+- Roles nuevos: `coordinador`, `lider`, `tesorero`, `gerente` + campo `region` (R1/R2) en usuarios. Seed de 8 usuarios (Usuarios.xlsx) + gerente, 33 cuentas contables (Cuentas.xlsx). Regiones R1/R2 = conjuntos de ciudades; ciudad asignada aleatoriamente por región.
+- Flujo: lider crea → coordinador aprueba/rechaza → (opcional) tesorero asigna presupuesto si `necesita_presupuesto` → lider carga factura (URL, SOLPED, fecha gasto, monto) → coordinador compara cotización vs factura → gerente aprueba (doble aprobación coord+gerente) → aprobado.
+- Visibilidad: coordinador/lider solo su región (lider solo propias), tesorero/gerente/admin todo.
+- PDF por solicitud (reportlab) en `GET /api/expenses/{id}/pdf`. Emails preparados (`_expense_notify`) pero INACTIVOS (sin EMERGENT_EMAIL_KEY).
+- Dashboard `/api/expenses/dashboard`: filtros desde/hasta/ciudad; KPIs (total, monto total, monto aprobado, aprobados, rechazados, pendientes), gasto por categoría, gasto por ciudad, tiempo promedio por etapa.
+- Backend testeado (9/9 casos OK). reportlab y openpyxl agregados a requirements.txt.
+
 ## Backlog / Roadmap
 - P2 (refactor sugerido por code review): Dividir `server.py` (>2200 líneas) en routers separados (`routers/tools.py`, `routers/fleet.py`)
 - P2: Extraer helper compartido `_build_tools_email_html()` (código HTML de emails duplicado en 3 endpoints)

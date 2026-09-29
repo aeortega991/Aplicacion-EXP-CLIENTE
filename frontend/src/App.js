@@ -21,6 +21,9 @@ import BodegasPage from "@/pages/tools/BodegasPage";
 import HistorialTecnicoPage from "@/pages/tools/HistorialTecnicoPage";
 import { ReporteActual, ReporteHistorico } from "@/pages/tools/ReportesPage";
 import BajasPage from "@/pages/tools/BajasPage";
+import GastosLayout from "@/layouts/GastosLayout";
+import GastosDashboard from "@/pages/gastos/GastosDashboard";
+import SolicitudesPage from "@/pages/gastos/SolicitudesPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -67,6 +70,10 @@ function App() {
             <Route path="reporte-actual" element={<ReporteActual />} />
             <Route path="reporte-historico" element={<ReporteHistorico />} />
             <Route path="bajas" element={<BajasPage />} />
+          </Route>
+          <Route path="/gastos" element={<Protected><GastosLayout /></Protected>}>
+            <Route index element={<GastosDashboard />} />
+            <Route path="solicitudes" element={<SolicitudesPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

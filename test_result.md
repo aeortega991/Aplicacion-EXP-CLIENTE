@@ -105,6 +105,22 @@
 user_problem_statement: "Control de Flota Vehicular - Fleet management system with authentication, vehicle tracking, and dashboard"
 
 backend:
+  - task: "Módulo Gastos - Workflow completo de aprobación"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Nuevo módulo Gastos. Endpoints: GET /api/expenses/meta (cuentas+ciudades+regiones), POST /api/expenses (crea, solo rol lider/admin, ciudad/region del usuario), GET /api/expenses (lista con scope por rol: coordinador->su region, lider->propias, tesorero/gerente/admin->todo; filtros estado/ciudad/desde/hasta), GET /api/expenses/{id}, POST /api/expenses/{id}/coordinator-decision (aprobar/rechazar; si necesita_presupuesto->pend_presupuesto else pend_factura), POST /api/expenses/{id}/assign-budget (tesorero/admin), POST /api/expenses/{id}/invoice (solicitante/admin: url_factura, numero_solped, fecha_gasto, monto_factura), POST /api/expenses/{id}/coordinator-final (compara cotizacion vs factura, aprobar->pend_aprob_gerencia), POST /api/expenses/{id}/manager-decision (gerente/admin, aprobar->aprobado), GET /api/expenses/{id}/pdf (reportlab), GET /api/expenses/dashboard (KPIs monto_total/aprobados/rechazados/pendientes, por_categoria, por_ciudad, tiempos_etapa promedio, filtros desde/hasta/ciudad). Seed: 8 usuarios de Usuarios.xlsx + 1 gerente (clave indurama123), 33 cuentas de Cuentas.xlsx, region R1/R2 con ciudades. Probado manualmente el flujo end-to-end con curl (todos 200, PDF 200, scope por region OK)."
+      - working: true
+        agent: "testing"
+        comment: "ALL 9 TESTS PASSED. Test 1: GET /api/expenses/meta returns 33 accounts, regions R1/R2, 14 cities, 7 estados (200 OK). Test 2: POST /api/expenses as líder jelaje creates expense with numero SG-0001, estado pend_coordinador, region R1 (200 OK). Test 3: Full flow WITH budget completed successfully - coordinador approves (pend_presupuesto), tesorero assigns budget (pend_factura), líder uploads invoice (pend_aprob_coordinador), coordinador final approves (pend_aprob_gerencia), gerente approves (aprobado) - all 200 OK. Test 4: Flow WITHOUT budget skips tesorero correctly - coordinador approval goes directly to pend_factura (200 OK). Test 5: Rejection flow works - coordinador rejects, estado becomes rechazado with rechazado_etapa and rechazo_motivo set (200 OK). Test 6: Region scope restrictions work perfectly - coordinador R2 cannot see R1 expenses in list, gets 403 when trying to act on R1 expense, líder jelaje only sees own expenses, líder tgranda gets 403 when accessing jelaje's expense (all correct). Test 7: Role restrictions work - líder gets 403 for coordinator action, tesorero gets 403 for creating expense, gerente gets 403 for assigning budget (all correct). Test 8: PDF generation works - returns 3747 bytes application/pdf (200 OK). Test 9: Dashboard works with all filters - returns kpis (total, monto_total, monto_aprobado, aprobados, rechazados, pendientes), por_categoria, por_ciudad, tiempos_etapa; filters desde/hasta/ciudad work correctly (200 OK). All authentication, authorization, workflow transitions, region scoping, and role restrictions working as expected."
+
+
   - task: "Authentication - Admin Login"
     implemented: true
     working: true
@@ -217,12 +233,11 @@ frontend:
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: true
 
 test_plan:
-  current_focus:
-    - "Login 404 Bug Fix - UI Verification Complete"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -232,3 +247,7 @@ agent_communication:
     message: "Regression testing completed for login 404 bug fix. All 6 tests PASSED. The .env files (backend/.env and frontend/.env) have been restored and the backend is running correctly. All authentication endpoints are working as expected: admin login (200), operator login (200), auth/me (200), modules/flota (200 with 78 vehicles), dashboard (200), and wrong password handling (401 not 404). The bug is FIXED."
   - agent: "testing"
     message: "UI testing completed for login 404 bug fix. BOTH admin and operator login flows work perfectly in the browser. Admin (aeortega/admin123) and Operator (operador/operador123) both successfully login, redirect to Hub, and show correct user info. NO 404 error toasts appear. NO network 404 errors detected. NO console errors. The bug is COMPLETELY FIXED and verified in the UI."
+  - agent: "main"
+    message: "Nuevo módulo GASTOS agregado. Por favor probar SOLO el backend del módulo de gastos (endpoints /api/expenses/*). Usuarios (clave indurama123): lider R1 jelaje/tgranda, lider R2 ambato/pmarin, coordinador R1 jullaguari, coordinador R2 tarias, tesorero memejia, gerente gerente. Admin aeortega/admin123. Validar: (1) crear solicitud como lider, (2) flujo con presupuesto (coordinador aprueba->tesorero asigna->lider factura->coordinador final->gerente aprueba->aprobado), (3) flujo SIN presupuesto (salta tesorero, va directo a pend_factura), (4) rechazo en cada etapa, (5) scope por region: coordinador R2 no debe ver ni actuar sobre gastos R1 (403/no listado), lider solo ve las propias, (6) restricciones de rol (un lider no puede aprobar, tesorero no puede crear, etc. -> 403), (7) PDF 200, (8) dashboard con filtros desde/hasta/ciudad devuelve kpis, por_categoria, por_ciudad, tiempos_etapa. No probar módulos de Vehículos/Herramientas."
+  - agent: "testing"
+    message: "EXPENSES MODULE TESTING COMPLETED - ALL 9 TESTS PASSED ✅. Comprehensive testing of all expenses endpoints completed successfully. Test results: (1) Meta endpoint returns correct data structure with 33 accounts, regions R1/R2, 14 cities, 7 estados. (2) Expense creation works correctly with proper estado, numero format (SG-XXXX), and region assignment. (3) Full workflow WITH budget completed successfully through all 5 stages (coordinador->tesorero->líder->coordinador final->gerente) with correct estado transitions. (4) Workflow WITHOUT budget correctly skips tesorero stage. (5) Rejection flow works with proper rechazado_etapa and rechazo_motivo tracking. (6) Region scope restrictions work perfectly - coordinador R2 cannot see/act on R1 expenses (403), líderes only see own expenses. (7) Role restrictions enforced correctly - all unauthorized actions return 403. (8) PDF generation works (3747 bytes, application/pdf). (9) Dashboard returns complete KPI structure with filters working correctly. NO ISSUES FOUND. All authentication, authorization, workflow transitions, region scoping, and role restrictions working as expected."

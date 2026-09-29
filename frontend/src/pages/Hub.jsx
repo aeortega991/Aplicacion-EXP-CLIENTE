@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Truck, Wrench, LogOut, ArrowRight } from "lucide-react";
+import { Truck, Wrench, LogOut, ArrowRight, Receipt } from "lucide-react";
 
 const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) => (
   <Link
@@ -59,7 +59,7 @@ export default function Hub() {
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Elige un módulo</h1>
           <p className="text-neutral-500 mt-3 max-w-xl">Selecciona el área que necesitas gestionar. Puedes cambiar entre módulos en cualquier momento.</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <ModuleCard
             to="/vehiculos"
             icon={Truck}
@@ -77,6 +77,15 @@ export default function Hub() {
             tag="6 opciones"
             gradient="bg-gradient-to-br from-neutral-800 to-neutral-950"
             testId="hub-tools-card"
+          />
+          <ModuleCard
+            to="/gastos"
+            icon={Receipt}
+            title="Gastos"
+            subtitle="Solicitudes de gasto con flujo de aprobación: coordinador, presupuesto (tesorero), factura y doble aprobación de gerencia."
+            tag="Aprobaciones"
+            gradient="bg-gradient-to-br from-amber-600 to-amber-800"
+            testId="hub-gastos-card"
           />
         </div>
       </main>
