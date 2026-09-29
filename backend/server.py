@@ -2696,21 +2696,148 @@ def _region_of_city(ciudad: Optional[str]) -> Optional[str]:
     return None
 
 
-async def _expense_notify(exp: dict, username: Optional[str], subject: str, body_lines: list):
-    """Intenta enviar email al usuario indicado. Inactivo si no hay EMAIL_KEY (no bloquea)."""
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
+
+
+def _expense_pdf_link(exp_id: str) -> Optional[str]:
+    if not APP_BASE_URL:
+        return None
+    tok = jwt.encode(
+        {"exp_id": exp_id, "type": "expense_pdf", "exp": datetime.now(timezone.utc) + timedelta(days=14)},
+        JWT_SECRET, algorithm=JWT_ALG,
+    )
+    return f"{APP_BASE_URL}/api/expenses/pdf/download?token={tok}"
+
+
+def _fmt_money(v):
     try:
-        if not username:
-            return
-        u = await db.users.find_one({"username": username}, {"email": 1})
-        to = (u or {}).get("email")
-        if not to:
-            return
-        html = "<div style='font-family:Arial,sans-serif'>" + "".join(
-            f"<p>{escape(str(l))}</p>" for l in body_lines
-        ) + "</div>"
-        await _send_email(to=to, subject=subject, html=html)
+        return f"${float(v):,.2f}"
+    except Exception:
+        return "—"
+
+
+def _expense_email_html(exp: dict, titulo: str, mensaje: str, pdf_link: Optional[str]) -> str:
+    rows = [
+        ("N° Solicitud", exp.get("numero")),
+        ("Estado", ESTADO_LABELS.get(exp.get("estado"), exp.get("estado"))),
+        ("Solicitante", exp.get("solicitante_nombre")),
+        ("Ciudad / Región", f"{exp.get('ciudad') or '—'} / {exp.get('region') or '—'}"),
+        ("Cuenta / Categoría", f"{exp.get('cuenta_nombre')} ({exp.get('cuenta_codigo')})"),
+        ("Proveedor", exp.get("proveedor")),
+        ("Fecha solicitud", exp.get("fecha")),
+        ("Monto cotización", _fmt_money(exp.get("monto"))),
+        ("¿Requiere presupuesto?", "Sí" if exp.get("necesita_presupuesto") else "No"),
+    ]
+    if exp.get("presupuesto_asignado"):
+        rows.append(("Presupuesto asignado", _fmt_money(exp.get("presupuesto_monto"))))
+    if exp.get("monto_factura") is not None:
+        rows.append(("Monto factura", _fmt_money(exp.get("monto_factura"))))
+        rows.append(("N° SOLPED", exp.get("numero_solped")))
+    if exp.get("estado") == E_RECHAZADO and exp.get("rechazo_motivo"):
+        rows.append(("Motivo de rechazo", exp.get("rechazo_motivo")))
+
+    tr = "".join(
+        f'<tr><td style="padding:6px 10px;color:#6B7280;font-size:13px;border-bottom:1px solid #EEE">{escape(str(k))}</td>'
+        f'<td style="padding:6px 10px;color:#111827;font-size:13px;font-weight:600;border-bottom:1px solid #EEE">{escape(str(v if v is not None else "—"))}</td></tr>'
+        for k, v in rows
+    )
+    boton = ""
+    if pdf_link:
+        boton = (
+            f'<tr><td colspan="2" style="padding:18px 10px 4px"><a href="{escape(pdf_link)}" '
+            f'style="display:inline-block;background:#D92D20;color:#fff;text-decoration:none;'
+            f'padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600">Descargar PDF de la solicitud</a>'
+            f'<div style="color:#9CA3AF;font-size:11px;margin-top:6px">El enlace es válido por 14 días.</div></td></tr>'
+        )
+    return (
+        f'<table role="presentation" width="100%" style="max-width:600px;margin:0 auto;'
+        f'font-family:Arial,Helvetica,sans-serif"><tr><td style="padding:24px">'
+        f'<div style="background:#111827;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">'
+        f'<div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.7">Gastos · {escape(EMAIL_FROM_NAME)}</div>'
+        f'<div style="font-size:18px;font-weight:700;margin-top:4px">{escape(titulo)}</div></div>'
+        f'<div style="border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;padding:20px">'
+        f'<p style="color:#374151;font-size:14px;margin:0 0 14px">{escape(mensaje)}</p>'
+        f'<table role="presentation" width="100%" style="border-collapse:collapse">{tr}{boton}</table>'
+        f'<p style="margin:18px 0 0;color:#9CA3AF;font-size:12px">Este mensaje fue generado automáticamente por '
+        f'{escape(EMAIL_FROM_NAME)}. No respondas con contraseñas ni datos sensibles.</p>'
+        f'</div></td></tr></table>'
+    )
+
+
+async def _emails_by_role(role: str, region: Optional[str] = None) -> list:
+    q = {"role": role}
+    if region:
+        q["region"] = region
+    users = await db.users.find(q, {"email": 1, "_id": 0}).to_list(500)
+    return [u.get("email") for u in users if u.get("email")]
+
+
+async def _email_of_username(username: Optional[str]) -> Optional[str]:
+    if not username:
+        return None
+    u = await db.users.find_one({"username": username}, {"email": 1, "_id": 0})
+    return (u or {}).get("email")
+
+
+async def _send_expense_emails(exp: dict, recipients: list, titulo: str, mensaje: str):
+    """Envía un correo (con enlace al PDF) a cada destinatario único. No bloquea el flujo."""
+    seen = set()
+    pdf_link = _expense_pdf_link(exp.get("id"))
+    for to in recipients:
+        if not to or to in seen:
+            continue
+        seen.add(to)
+        try:
+            html = _expense_email_html(exp, titulo, mensaje, pdf_link)
+            await _send_email(to=to, subject=f"{titulo} · {exp.get('numero')}", html=html)
+        except Exception as e:
+            logging.info(f"[expenses] email skip {to}: {e}")
+
+
+async def _notify_expense_stage(exp: dict, event: str, actor_username: Optional[str]):
+    """Notifica al actor y a quien corresponde según el evento del flujo."""
+    try:
+        solicitante = await _email_of_username(exp.get("solicitante_username"))
+        actor = await _email_of_username(actor_username)
+        region = exp.get("region")
+        coords = await _emails_by_role("coordinador", region)
+        tesoreros = await _emails_by_role("tesorero")
+        gerentes = await _emails_by_role("gerente")
+        num = exp.get("numero")
+
+        if event == "creada":
+            await _send_expense_emails(exp, [actor] + coords,
+                f"Nueva solicitud de gasto", f"Se registró la solicitud {num} y está pendiente de aprobación del coordinador.")
+        elif event == "coord_aprobada":
+            if exp.get("estado") == E_PEND_PRESUP:
+                await _send_expense_emails(exp, [actor, solicitante] + tesoreros,
+                    "Solicitud aprobada por coordinador", f"La solicitud {num} fue aprobada y pasa a asignación de presupuesto (tesorería).")
+            else:
+                await _send_expense_emails(exp, [actor, solicitante],
+                    "Solicitud aprobada por coordinador", f"La solicitud {num} fue aprobada. El solicitante debe cargar la factura.")
+        elif event == "coord_rechazada":
+            await _send_expense_emails(exp, [actor, solicitante],
+                "Solicitud rechazada", f"La solicitud {num} fue rechazada por el coordinador.")
+        elif event == "presupuesto_asignado":
+            await _send_expense_emails(exp, [actor, solicitante],
+                "Presupuesto asignado", f"Se asignó el presupuesto de la solicitud {num}. El solicitante ya puede cargar la factura.")
+        elif event == "factura_cargada":
+            await _send_expense_emails(exp, [actor] + coords,
+                "Factura cargada", f"El solicitante cargó la factura de {num}. El coordinador debe comparar cotización vs factura.")
+        elif event == "coordfinal_aprobada":
+            await _send_expense_emails(exp, [actor, solicitante] + gerentes,
+                "Enviada a aprobación de gerencia", f"La solicitud {num} fue validada por el coordinador y pasa a aprobación de gerencia.")
+        elif event == "coordfinal_rechazada":
+            await _send_expense_emails(exp, [actor, solicitante],
+                "Solicitud rechazada", f"La solicitud {num} fue rechazada por el coordinador en la comparación cotización/factura.")
+        elif event == "gerencia_aprobada":
+            await _send_expense_emails(exp, [actor, solicitante] + coords,
+                "Solicitud APROBADA por gerencia", f"La solicitud {num} fue aprobada por gerencia. Proceso completo.")
+        elif event == "gerencia_rechazada":
+            await _send_expense_emails(exp, [actor, solicitante],
+                "Solicitud rechazada por gerencia", f"La solicitud {num} fue rechazada por gerencia.")
     except Exception as e:
-        logging.info(f"[expenses] email skip: {e}")
+        logging.info(f"[expenses] notify skip: {e}")
 
 
 def _expense_scope_query(user: dict) -> Optional[dict]:
@@ -2835,7 +2962,7 @@ async def create_expense(payload: ExpenseCreate, user: dict = Depends(get_curren
         ],
     }
     await db.expenses.insert_one(doc)
-    await _expense_notify(doc, None, "Nueva solicitud de gasto", [])
+    await _notify_expense_stage(doc, "creada", user.get("username"))
     return _public_expense(doc)
 
 
@@ -3115,12 +3242,15 @@ async def coordinator_decision(expense_id: str, payload: DecisionIn, user: dict 
         _push_history(upd, exp, E_RECHAZADO, "rechazada_coordinador", user.get("username"), payload.comentario)
         upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación coordinador"})
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
-        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada por el coordinador.", payload.comentario or ""])
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "coord_rechazada", user.get("username"))
         return {"ok": True, "estado": E_RECHAZADO}
     elif payload.decision == "aprobar":
         nuevo = E_PEND_PRESUP if exp.get("necesita_presupuesto") else E_PEND_FACTURA
         _push_history(upd, exp, nuevo, "aprobada_coordinador", user.get("username"), payload.comentario)
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "coord_aprobada", user.get("username"))
         return {"ok": True, "estado": nuevo}
     raise HTTPException(status_code=400, detail="Decisión inválida")
 
@@ -3142,7 +3272,8 @@ async def assign_budget(expense_id: str, payload: BudgetIn, user: dict = Depends
     }
     _push_history(upd, exp, E_PEND_FACTURA, "presupuesto_asignado", user.get("username"), payload.comentario)
     await db.expenses.update_one({"id": expense_id}, {"$set": upd})
-    await _expense_notify(exp, exp.get("solicitante_username"), f"Presupuesto asignado {exp['numero']}", [f"Se asignó el presupuesto de la solicitud {exp['numero']}. Ya puedes cargar la factura."])
+    updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    await _notify_expense_stage(updated, "presupuesto_asignado", user.get("username"))
     return {"ok": True, "estado": E_PEND_FACTURA}
 
 
@@ -3161,6 +3292,8 @@ async def upload_invoice(expense_id: str, payload: InvoiceIn, user: dict = Depen
     }
     _push_history(upd, exp, E_PEND_COORD_FINAL, "factura_cargada", user.get("username"), None)
     await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+    updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    await _notify_expense_stage(updated, "factura_cargada", user.get("username"))
     return {"ok": True, "estado": E_PEND_COORD_FINAL}
 
 
@@ -3177,11 +3310,14 @@ async def coordinator_final(expense_id: str, payload: DecisionIn, user: dict = D
         _push_history(upd, exp, E_RECHAZADO, "rechazada_coordinador_final", user.get("username"), payload.comentario)
         upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación final coordinador"})
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
-        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada en la comparación cotización/factura.", payload.comentario or ""])
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "coordfinal_rechazada", user.get("username"))
         return {"ok": True, "estado": E_RECHAZADO}
     elif payload.decision == "aprobar":
         _push_history(upd, exp, E_PEND_GERENCIA, "aprobada_coordinador_final", user.get("username"), payload.comentario)
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "coordfinal_aprobada", user.get("username"))
         return {"ok": True, "estado": E_PEND_GERENCIA}
     raise HTTPException(status_code=400, detail="Decisión inválida")
 
@@ -3199,19 +3335,19 @@ async def manager_decision(expense_id: str, payload: DecisionIn, user: dict = De
         _push_history(upd, exp, E_RECHAZADO, "rechazada_gerencia", user.get("username"), payload.comentario)
         upd.update({"rechazo_motivo": payload.comentario, "rechazado_por": user.get("username"), "rechazado_etapa": "Aprobación gerencia"})
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
-        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} rechazada", [f"Tu solicitud {exp['numero']} fue rechazada por gerencia.", payload.comentario or ""])
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "gerencia_rechazada", user.get("username"))
         return {"ok": True, "estado": E_RECHAZADO}
     elif payload.decision == "aprobar":
         _push_history(upd, exp, E_APROBADO, "aprobada_gerencia", user.get("username"), payload.comentario)
         await db.expenses.update_one({"id": expense_id}, {"$set": upd})
-        await _expense_notify(exp, exp.get("solicitante_username"), f"Solicitud {exp['numero']} APROBADA", [f"Tu solicitud {exp['numero']} fue aprobada por gerencia."])
+        updated = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        await _notify_expense_stage(updated, "gerencia_aprobada", user.get("username"))
         return {"ok": True, "estado": E_APROBADO}
     raise HTTPException(status_code=400, detail="Decisión inválida")
 
 
-@api.get("/expenses/{expense_id}/pdf")
-async def expense_pdf(expense_id: str, user: dict = Depends(get_current_user)):
-    exp = await _get_expense_or_404(expense_id, user)
+def _build_expense_pdf(exp: dict):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -3324,6 +3460,32 @@ async def expense_pdf(expense_id: str, user: dict = Depends(get_current_user)):
 
     doc.build(el)
     buf.seek(0)
+    return buf
+
+
+@api.get("/expenses/{expense_id}/pdf")
+async def expense_pdf(expense_id: str, user: dict = Depends(get_current_user)):
+    exp = await _get_expense_or_404(expense_id, user)
+    buf = _build_expense_pdf(exp)
+    return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{exp.get("numero")}.pdf"'})
+
+
+@api.get("/expenses/pdf/download")
+async def expense_pdf_public(token: str):
+    """Descarga del PDF mediante token temporal firmado (para enlaces de correo)."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        if payload.get("type") != "expense_pdf":
+            raise HTTPException(status_code=403, detail="Token inválido")
+        expense_id = payload.get("exp_id")
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=403, detail="El enlace ha expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=403, detail="Enlace inválido")
+    exp = await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+    if not exp:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    buf = _build_expense_pdf(exp)
     return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{exp.get("numero")}.pdf"'})
 
 

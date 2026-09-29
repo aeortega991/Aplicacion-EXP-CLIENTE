@@ -55,6 +55,7 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - PDF por solicitud (reportlab) en `GET /api/expenses/{id}/pdf`. Emails preparados (`_expense_notify`) pero INACTIVOS (sin EMERGENT_EMAIL_KEY).
 - Dashboard `/api/expenses/dashboard`: filtros desde/hasta/ciudad; KPIs (total, monto total, monto aprobado, aprobados, rechazados, pendientes), gasto por categoría, gasto por ciudad, tiempo promedio por etapa.
 - Backend testeado (9/9 casos OK). reportlab y openpyxl agregados a requirements.txt.
+- **Correos ACTIVADOS (Feb 2026)**: notificaciones en cada transición del flujo vía servicio de email gestionado de Emergent (`EMERGENT_EMAIL_KEY`, `EMAIL_FROM_NAME`, `APP_BASE_URL` en backend/.env). Se notifica al actor y al siguiente responsable/aprobador, y en aprobaciones/rechazos al aprobador y al solicitante. El servicio NO admite adjuntos, por lo que se incluye un ENLACE SEGURO con token JWT (14 días) para descargar el PDF: `GET /api/expenses/pdf/download?token=`. Export Excel de solicitudes con filtros ciudad+fecha creación: `GET /api/expenses/export`.
 
 ## Backlog / Roadmap
 - P2 (refactor sugerido por code review): Dividir `server.py` (>2200 líneas) en routers separados (`routers/tools.py`, `routers/fleet.py`)
