@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Wrench, Users, ClipboardCheck, FileBarChart, History, Ban, ArrowLeft, LogOut, LayoutDashboard, RotateCcw, ArrowRightLeft, Warehouse, UserRound } from "lucide-react";
+import { Wrench, ClipboardCheck, FileBarChart, History, Ban, ArrowLeft, LogOut, LayoutDashboard, RotateCcw, ArrowRightLeft, Warehouse, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -41,9 +41,6 @@ export default function ToolsLayout() {
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Inventario</div>
           <NavLink to="/herramientas/inventario" className={navClass} data-testid="nav-inventario">
             <Wrench className="w-4 h-4" /> <span>Herramientas</span>
-          </NavLink>
-          <NavLink to="/herramientas/tecnicos" className={navClass} data-testid="nav-tecnicos">
-            <Users className="w-4 h-4" /> <span>Técnicos</span>
           </NavLink>
           <NavLink to="/herramientas/bodegas" className={navClass} data-testid="nav-bodegas">
             <Warehouse className="w-4 h-4" /> <span>Bodegas</span>

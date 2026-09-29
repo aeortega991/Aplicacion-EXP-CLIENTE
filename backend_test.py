@@ -1,341 +1,583 @@
 #!/usr/bin/env python3
 """
-Backend Regression Test Suite - Login Bug Fix Verification
-Tests the fix for the 404 login bug caused by empty .env files
+Backend API Testing - Technician Unification Refactor
+Tests the unified user/technician system with documento-based login
 """
 
 import requests
 import json
 import sys
-from typing import Dict, Any, Optional
+from typing import Optional
 
-# Load the backend URL from frontend/.env
-BACKEND_URL = "https://58c39cd6-0b33-4e91-bc94-1afa9fa18425.preview.emergentagent.com/api"
+# Load backend URL from frontend/.env
+with open('/app/frontend/.env', 'r') as f:
+    for line in f:
+        if line.startswith('REACT_APP_BACKEND_URL='):
+            BASE_URL = line.split('=', 1)[1].strip()
+            break
 
-# Test credentials from test_credentials.md
-ADMIN_USER = {"username": "aeortega", "password": "admin123"}
-OPERATOR_USER = {"username": "operador", "password": "operador123"}
+API_BASE = f"{BASE_URL}/api"
 
-class TestResult:
-    def __init__(self):
-        self.passed = 0
-        self.failed = 0
-        self.tests = []
+# Test credentials
+ADMIN_USER = "aeortega"
+ADMIN_PASS = "admin123"
+
+# Color codes for output
+GREEN = '\033[92m'
+RED = '\033[91m'
+YELLOW = '\033[93m'
+BLUE = '\033[94m'
+RESET = '\033[0m'
+
+def log_test(test_num: str, description: str):
+    print(f"\n{BLUE}{'='*80}{RESET}")
+    print(f"{BLUE}TEST {test_num}: {description}{RESET}")
+    print(f"{BLUE}{'='*80}{RESET}")
+
+def log_pass(message: str):
+    print(f"{GREEN}✓ PASS: {message}{RESET}")
+
+def log_fail(message: str):
+    print(f"{RED}✗ FAIL: {message}{RESET}")
+
+def log_info(message: str):
+    print(f"{YELLOW}ℹ INFO: {message}{RESET}")
+
+def make_request(method: str, endpoint: str, token: Optional[str] = None, json_data: dict = None, params: dict = None):
+    """Make HTTP request and return response"""
+    url = f"{API_BASE}{endpoint}"
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     
-    def add_pass(self, test_name: str, details: str = ""):
-        self.passed += 1
-        self.tests.append({"name": test_name, "status": "PASS", "details": details})
-        print(f"✅ PASS: {test_name}")
-        if details:
-            print(f"   {details}")
-    
-    def add_fail(self, test_name: str, details: str = ""):
-        self.failed += 1
-        self.tests.append({"name": test_name, "status": "FAIL", "details": details})
-        print(f"❌ FAIL: {test_name}")
-        if details:
-            print(f"   {details}")
-    
-    def summary(self):
-        total = self.passed + self.failed
-        print("\n" + "="*80)
-        print(f"TEST SUMMARY: {self.passed}/{total} passed, {self.failed}/{total} failed")
-        print("="*80)
-        return self.failed == 0
-
-def test_admin_login(result: TestResult) -> Optional[str]:
-    """Test 1: Admin login should return 200 with token and role=admin"""
-    test_name = "Test 1: Admin Login (aeortega/admin123)"
     try:
-        response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json=ADMIN_USER,
-            timeout=10
-        )
+        if method == "GET":
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+        elif method == "POST":
+            resp = requests.post(url, headers=headers, json=json_data, timeout=10)
+        elif method == "PATCH":
+            resp = requests.patch(url, headers=headers, json=json_data, timeout=10)
+        elif method == "DELETE":
+            resp = requests.delete(url, headers=headers, timeout=10)
+        else:
+            raise ValueError(f"Unsupported method: {method}")
         
-        status_code = response.status_code
-        
-        if status_code != 200:
-            result.add_fail(
-                test_name,
-                f"Expected status 200, got {status_code}. Response: {response.text[:200]}"
-            )
-            return None
-        
-        data = response.json()
-        
-        # Check for token
-        if "token" not in data:
-            result.add_fail(test_name, "Response missing 'token' field")
-            return None
-        
-        # Check for user object
-        if "user" not in data:
-            result.add_fail(test_name, "Response missing 'user' field")
-            return None
-        
-        # Check role
-        if data["user"].get("role") != "admin":
-            result.add_fail(
-                test_name,
-                f"Expected role='admin', got role='{data['user'].get('role')}'"
-            )
-            return None
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code}, Token: {data['token'][:20]}..., Role: {data['user']['role']}"
-        )
-        return data["token"]
-        
+        log_info(f"{method} {endpoint} -> {resp.status_code}")
+        return resp
     except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
+        log_fail(f"Request failed: {e}")
         return None
 
-def test_operator_login(result: TestResult) -> Optional[str]:
-    """Test 2: Operator login should return 200 with token and role=user"""
-    test_name = "Test 2: Operator Login (operador/operador123)"
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json=OPERATOR_USER,
-            timeout=10
-        )
-        
-        status_code = response.status_code
-        
-        if status_code != 200:
-            result.add_fail(
-                test_name,
-                f"Expected status 200, got {status_code}. Response: {response.text[:200]}"
-            )
-            return None
-        
-        data = response.json()
-        
-        # Check for token
-        if "token" not in data:
-            result.add_fail(test_name, "Response missing 'token' field")
-            return None
-        
-        # Check for user object
-        if "user" not in data:
-            result.add_fail(test_name, "Response missing 'user' field")
-            return None
-        
-        # Check role
-        if data["user"].get("role") != "user":
-            result.add_fail(
-                test_name,
-                f"Expected role='user', got role='{data['user'].get('role')}'"
-            )
-            return None
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code}, Token: {data['token'][:20]}..., Role: {data['user']['role']}"
-        )
-        return data["token"]
-        
-    except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
-        return None
+# Global variables to store test data
+admin_token = None
+test_tecnico_id = None
+test_lider_id = None
+test_tool_id = None
+test_warehouse_id = None
 
-def test_auth_me(result: TestResult, token: str):
-    """Test 3: GET /api/auth/me with admin token should return 200 with user data"""
-    test_name = "Test 3: GET /api/auth/me (with admin token)"
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/auth/me",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
-        
-        status_code = response.status_code
-        
-        if status_code != 200:
-            result.add_fail(
-                test_name,
-                f"Expected status 200, got {status_code}. Response: {response.text[:200]}"
-            )
-            return
-        
-        data = response.json()
-        
-        # Check for username
-        if data.get("username") != "aeortega":
-            result.add_fail(
-                test_name,
-                f"Expected username='aeortega', got username='{data.get('username')}'"
-            )
-            return
-        
-        # Check for role
-        if data.get("role") != "admin":
-            result.add_fail(
-                test_name,
-                f"Expected role='admin', got role='{data.get('role')}'"
-            )
-            return
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code}, Username: {data.get('username')}, Role: {data.get('role')}"
-        )
-        
-    except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
+def test_1_admin_login():
+    """Test 1: Admin login with aeortega/admin123"""
+    global admin_token
+    
+    log_test("1", "Admin Login (aeortega/admin123)")
+    
+    resp = make_request("POST", "/auth/login", json_data={
+        "username": ADMIN_USER,
+        "password": ADMIN_PASS
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Login failed with status {resp.status_code if resp else 'N/A'}")
+        return False
+    
+    data = resp.json()
+    if "token" not in data:
+        log_fail("No token in response")
+        return False
+    
+    admin_token = data["token"]
+    user_data = data.get("user", {})
+    
+    if user_data.get("role") != "admin":
+        log_fail(f"Expected role 'admin', got '{user_data.get('role')}'")
+        return False
+    
+    log_pass(f"Admin login successful. Token received. Role: {user_data.get('role')}")
+    return True
 
-def test_flota_module(result: TestResult, token: str):
-    """Test 4: GET /api/modules/flota with admin token should return 200 with vehicle list"""
-    test_name = "Test 4: GET /api/modules/flota (with admin token)"
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/modules/flota",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
+def test_2_create_tecnico():
+    """Test 2: Create tecnico user with documento TEST9001"""
+    global test_tecnico_id
+    
+    log_test("2", "Create Tecnico User (documento: TEST9001)")
+    
+    # Create user
+    resp = make_request("POST", "/users", token=admin_token, json_data={
+        "documento": "TEST9001",
+        "name": "Tecnico Prueba Uno",
+        "role": "tecnico",
+        "ciudad": "QUITO",
+        "password": "clave123"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"User creation failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    user_data = resp.json()
+    test_tecnico_id = user_data.get("id")
+    log_pass(f"User created with id: {test_tecnico_id}")
+    
+    # Verify in /api/tools/technicians
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get technicians list")
+        return False
+    
+    technicians = resp.json()
+    found_in_tools = False
+    for tech in technicians:
+        if tech.get("codigo") == "TEST9001" or "Tecnico Prueba" in tech.get("nombre", ""):
+            found_in_tools = True
+            log_pass(f"Technician found in /api/tools/technicians: {tech.get('nombre')} (codigo: {tech.get('codigo')})")
+            break
+    
+    if not found_in_tools:
+        log_fail("Technician NOT found in /api/tools/technicians")
+        return False
+    
+    # Verify in /api/modules/tecnicos
+    resp = make_request("GET", "/modules/tecnicos", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get tecnicos module")
+        return False
+    
+    tecnicos = resp.json()
+    found_in_module = False
+    for tec in tecnicos:
+        if tec.get("documento") == "TEST9001":
+            found_in_module = True
+            log_pass(f"Tecnico found in /api/modules/tecnicos: {tec.get('nombre')} (documento: {tec.get('documento')})")
+            break
+    
+    if not found_in_module:
+        log_fail("Tecnico NOT found in /api/modules/tecnicos")
+        return False
+    
+    # Test login with documento (lowercase and uppercase)
+    for username in ["TEST9001", "test9001"]:
+        resp = make_request("POST", "/auth/login", json_data={
+            "username": username,
+            "password": "clave123"
+        })
         
-        status_code = response.status_code
+        if not resp or resp.status_code != 200:
+            log_fail(f"Login with username '{username}' failed")
+            return False
         
-        if status_code != 200:
-            result.add_fail(
-                test_name,
-                f"Expected status 200, got {status_code}. Response: {response.text[:200]}"
-            )
-            return
+        login_data = resp.json()
+        if login_data.get("user", {}).get("role") != "tecnico":
+            log_fail(f"Expected role 'tecnico', got '{login_data.get('user', {}).get('role')}'")
+            return False
         
-        data = response.json()
-        
-        # Check if it's a list
-        if not isinstance(data, list):
-            result.add_fail(test_name, f"Expected list response, got {type(data)}")
-            return
-        
-        # Check vehicle count (should be around 78)
-        vehicle_count = len(data)
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code}, Vehicle count: {vehicle_count}"
-        )
-        
-    except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
+        log_pass(f"Login successful with username '{username}' (role: tecnico)")
+    
+    return True
 
-def test_dashboard(result: TestResult, token: str):
-    """Test 5: GET /api/dashboard with admin token should return 200"""
-    test_name = "Test 5: GET /api/dashboard (with admin token)"
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/dashboard",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10
-        )
-        
-        status_code = response.status_code
-        
-        if status_code != 200:
-            result.add_fail(
-                test_name,
-                f"Expected status 200, got {status_code}. Response: {response.text[:200]}"
-            )
-            return
-        
-        data = response.json()
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code}, Response keys: {list(data.keys()) if isinstance(data, dict) else 'list'}"
-        )
-        
-    except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
+def test_3_edit_tecnico():
+    """Test 3: Edit tecnico user and verify changes in /api/tools/technicians"""
+    log_test("3", "Edit Tecnico User (update name and ciudad)")
+    
+    if not test_tecnico_id:
+        log_fail("No tecnico ID available from previous test")
+        return False
+    
+    # Edit user
+    resp = make_request("PATCH", f"/users/{test_tecnico_id}", token=admin_token, json_data={
+        "name": "Tecnico Prueba Editado",
+        "ciudad": "GUAYAQUIL"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"User update failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    log_pass("User updated successfully")
+    
+    # Verify changes in /api/tools/technicians
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get technicians list")
+        return False
+    
+    technicians = resp.json()
+    found = False
+    for tech in technicians:
+        if tech.get("id") == test_tecnico_id:
+            found = True
+            nombre = tech.get("nombre", "")
+            ciudad = tech.get("ciudad", "")
+            
+            if "Editado" in nombre:
+                log_pass(f"Updated name found in technician: {nombre}")
+            else:
+                log_fail(f"Name not updated correctly. Expected 'Editado' in name, got: {nombre}")
+                return False
+            
+            if ciudad == "GUAYAQUIL":
+                log_pass(f"Updated ciudad found in technician: {ciudad}")
+            else:
+                log_fail(f"Ciudad not updated correctly. Expected 'GUAYAQUIL', got: {ciudad}")
+                return False
+            break
+    
+    if not found:
+        log_fail(f"Technician with id {test_tecnico_id} not found in /api/tools/technicians")
+        return False
+    
+    return True
 
-def test_wrong_password(result: TestResult):
-    """Test 6: Login with wrong password should return 401 (NOT 404)"""
-    test_name = "Test 6: Login with wrong password (expect 401, NOT 404)"
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json={"username": "aeortega", "password": "wrongpassword"},
-            timeout=10
-        )
+def test_4_create_lider():
+    """Test 4: Create lider user with documento LID5001"""
+    global test_lider_id
+    
+    log_test("4", "Create Lider User (documento: LID5001)")
+    
+    # Create user
+    resp = make_request("POST", "/users", token=admin_token, json_data={
+        "documento": "LID5001",
+        "name": "Lider Doc",
+        "role": "lider",
+        "region": "R1",
+        "ciudad": "AMBATO",
+        "password": "clave123"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"User creation failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    user_data = resp.json()
+    test_lider_id = user_data.get("id")
+    log_pass(f"Lider user created with id: {test_lider_id}")
+    
+    # Test login with documento
+    resp = make_request("POST", "/auth/login", json_data={
+        "username": "LID5001",
+        "password": "clave123"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Login with LID5001 failed")
+        return False
+    
+    login_data = resp.json()
+    if login_data.get("user", {}).get("role") != "lider":
+        log_fail(f"Expected role 'lider', got '{login_data.get('user', {}).get('role')}'")
+        return False
+    
+    log_pass(f"Login successful with username 'LID5001' (role: lider)")
+    return True
+
+def test_5_tool_assignment_technician():
+    """Test 5: Assign tool to technician"""
+    global test_tool_id
+    
+    log_test("5", "Tool Assignment to Technician")
+    
+    if not test_tecnico_id:
+        log_fail("No tecnico ID available")
+        return False
+    
+    # Get existing tools
+    resp = make_request("GET", "/tools/tools", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get tools list")
+        return False
+    
+    tools = resp.json()
+    active_tools = [t for t in tools if t.get("estado") == "Activa"]
+    
+    # If no active tools, create one
+    if not active_tools:
+        log_info("No active tools found, creating one...")
+        resp = make_request("POST", "/tools/tools", token=admin_token, json_data={
+            "marca": "Taladro",
+            "fecha_compra": "2026-01-10",
+            "valor": 100
+        })
         
-        status_code = response.status_code
+        if not resp or resp.status_code != 200:
+            log_fail("Failed to create tool")
+            return False
         
-        if status_code == 404:
-            result.add_fail(
-                test_name,
-                f"Got 404 (the bug is NOT fixed!). Response: {response.text[:200]}"
-            )
-            return
-        
-        if status_code != 401:
-            result.add_fail(
-                test_name,
-                f"Expected status 401, got {status_code}. Response: {response.text[:200]}"
-            )
-            return
-        
-        result.add_pass(
-            test_name,
-            f"Status: {status_code} (correctly returns 401, not 404)"
-        )
-        
-    except Exception as e:
-        result.add_fail(test_name, f"Exception: {str(e)}")
+        tool_data = resp.json()
+        test_tool_id = tool_data.get("id")
+        log_pass(f"Tool created with id: {test_tool_id}")
+    else:
+        test_tool_id = active_tools[0].get("id")
+        log_info(f"Using existing tool with id: {test_tool_id}")
+    
+    # Assign tool to technician
+    resp = make_request("POST", "/tools/assignments/batch", token=admin_token, json_data={
+        "destination_type": "technician",
+        "technician_id": test_tecnico_id,
+        "tool_ids": [test_tool_id]
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Tool assignment failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    assignment_data = resp.json()
+    batch_id = assignment_data.get("batch_id")
+    log_pass(f"Tool assigned successfully. Batch ID: {batch_id}")
+    log_info(f"Total herramientas: {assignment_data.get('total_herramientas')}")
+    log_info(f"Valor total: ${assignment_data.get('valor_total')}")
+    
+    # Verify assignment shows technician_nombre
+    resp = make_request("GET", "/tools/reports/current", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get current assignments report")
+        return False
+    
+    assignments = resp.json()
+    found = False
+    for assignment in assignments:
+        if assignment.get("tool_id") == test_tool_id:
+            found = True
+            tech_nombre = assignment.get("technician_nombre")
+            if tech_nombre:
+                log_pass(f"Assignment found with technician_nombre: {tech_nombre}")
+            else:
+                log_fail("Assignment found but technician_nombre is missing")
+                return False
+            break
+    
+    if not found:
+        log_fail("Assignment not found in current report")
+        return False
+    
+    return True
+
+def test_6_tool_assignment_warehouse():
+    """Test 6: Assign tool to warehouse"""
+    global test_warehouse_id
+    
+    log_test("6", "Tool Assignment to Warehouse")
+    
+    # Get warehouses
+    resp = make_request("GET", "/tools/warehouses", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get warehouses list")
+        return False
+    
+    warehouses = resp.json()
+    if not warehouses:
+        log_fail("No warehouses available")
+        return False
+    
+    test_warehouse_id = warehouses[0].get("id")
+    log_info(f"Using warehouse: {warehouses[0].get('nombre')} (id: {test_warehouse_id})")
+    
+    # Create another tool for warehouse assignment
+    resp = make_request("POST", "/tools/tools", token=admin_token, json_data={
+        "marca": "Martillo",
+        "fecha_compra": "2026-01-10",
+        "valor": 50
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to create tool for warehouse")
+        return False
+    
+    warehouse_tool_id = resp.json().get("id")
+    log_pass(f"Tool created for warehouse with id: {warehouse_tool_id}")
+    
+    # Assign tool to warehouse
+    resp = make_request("POST", "/tools/assignments/batch", token=admin_token, json_data={
+        "destination_type": "warehouse",
+        "warehouse_id": test_warehouse_id,
+        "tool_ids": [warehouse_tool_id]
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Warehouse assignment failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    assignment_data = resp.json()
+    batch_id = assignment_data.get("batch_id")
+    log_pass(f"Tool assigned to warehouse successfully. Batch ID: {batch_id}")
+    log_info(f"Total herramientas: {assignment_data.get('total_herramientas')}")
+    log_info(f"Valor total: ${assignment_data.get('valor_total')}")
+    
+    return True
+
+def test_7_delete_tecnico():
+    """Test 7: Delete tecnico user and verify removal from /api/tools/technicians"""
+    log_test("7", "Delete Tecnico User (TEST9001)")
+    
+    if not test_tecnico_id:
+        log_fail("No tecnico ID available")
+        return False
+    
+    # Delete user
+    resp = make_request("DELETE", f"/users/{test_tecnico_id}", token=admin_token)
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"User deletion failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    log_pass("User deleted successfully")
+    
+    # Verify removal from /api/tools/technicians
+    resp = make_request("GET", "/tools/technicians", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get technicians list")
+        return False
+    
+    technicians = resp.json()
+    found = False
+    for tech in technicians:
+        if tech.get("id") == test_tecnico_id or tech.get("codigo") == "TEST9001":
+            found = True
+            break
+    
+    if found:
+        log_fail("Technician still present in /api/tools/technicians after deletion")
+        return False
+    
+    log_pass("Technician successfully removed from /api/tools/technicians")
+    return True
+
+def test_8_migrated_tecnico_login():
+    """Test 8: Login with migrated tecnico using indurama123 password"""
+    log_test("8", "Migrated Tecnico Login (indurama123)")
+    
+    # Get a migrated tecnico from /api/modules/tecnicos
+    resp = make_request("GET", "/modules/tecnicos", token=admin_token)
+    if not resp or resp.status_code != 200:
+        log_fail("Failed to get tecnicos module")
+        return False
+    
+    tecnicos = resp.json()
+    if not tecnicos:
+        log_fail("No tecnicos available for testing")
+        return False
+    
+    # Pick the first tecnico
+    test_tecnico = tecnicos[0]
+    documento = test_tecnico.get("documento")
+    
+    if not documento:
+        log_fail("Tecnico has no documento")
+        return False
+    
+    log_info(f"Testing login with migrated tecnico: {test_tecnico.get('nombre')} (documento: {documento})")
+    
+    # Try login with indurama123
+    resp = make_request("POST", "/auth/login", json_data={
+        "username": documento,
+        "password": "indurama123"
+    })
+    
+    if not resp or resp.status_code != 200:
+        log_fail(f"Login failed with status {resp.status_code if resp else 'N/A'}")
+        if resp:
+            log_info(f"Response: {resp.text}")
+        return False
+    
+    login_data = resp.json()
+    if login_data.get("user", {}).get("role") != "tecnico":
+        log_fail(f"Expected role 'tecnico', got '{login_data.get('user', {}).get('role')}'")
+        return False
+    
+    log_pass(f"Migrated tecnico login successful with documento '{documento}' and password 'indurama123' (role: tecnico)")
+    return True
+
+def cleanup():
+    """Cleanup: Delete test users created during testing"""
+    log_test("CLEANUP", "Deleting test users")
+    
+    # Delete lider if created
+    if test_lider_id:
+        resp = make_request("DELETE", f"/users/{test_lider_id}", token=admin_token)
+        if resp and resp.status_code == 200:
+            log_pass(f"Deleted lider user (LID5001)")
+        else:
+            log_info(f"Could not delete lider user (may have been deleted already)")
+    
+    log_info("Cleanup completed")
 
 def main():
-    print("="*80)
-    print("BACKEND REGRESSION TEST SUITE - Login Bug Fix Verification")
-    print("="*80)
-    print(f"Backend URL: {BACKEND_URL}")
-    print(f"Admin User: {ADMIN_USER['username']}")
-    print(f"Operator User: {OPERATOR_USER['username']}")
-    print("="*80)
-    print()
+    """Run all tests"""
+    print(f"\n{BLUE}{'='*80}{RESET}")
+    print(f"{BLUE}BACKEND API TESTING - TECHNICIAN UNIFICATION REFACTOR{RESET}")
+    print(f"{BLUE}Base URL: {API_BASE}{RESET}")
+    print(f"{BLUE}{'='*80}{RESET}")
     
-    result = TestResult()
+    tests = [
+        ("1", "Admin Login", test_1_admin_login),
+        ("2", "Create Tecnico User", test_2_create_tecnico),
+        ("3", "Edit Tecnico User", test_3_edit_tecnico),
+        ("4", "Create Lider User", test_4_create_lider),
+        ("5", "Tool Assignment to Technician", test_5_tool_assignment_technician),
+        ("6", "Tool Assignment to Warehouse", test_6_tool_assignment_warehouse),
+        ("7", "Delete Tecnico User", test_7_delete_tecnico),
+        ("8", "Migrated Tecnico Login", test_8_migrated_tecnico_login),
+    ]
     
-    # Test 1: Admin login
-    admin_token = test_admin_login(result)
-    print()
+    results = []
+    for test_num, test_name, test_func in tests:
+        try:
+            result = test_func()
+            results.append((test_num, test_name, result))
+        except Exception as e:
+            log_fail(f"Test {test_num} crashed: {e}")
+            results.append((test_num, test_name, False))
     
-    # Test 2: Operator login
-    operator_token = test_operator_login(result)
-    print()
-    
-    # Test 3: Auth me (requires admin token)
-    if admin_token:
-        test_auth_me(result, admin_token)
-    else:
-        result.add_fail("Test 3: GET /api/auth/me", "Skipped - no admin token from Test 1")
-    print()
-    
-    # Test 4: Flota module (requires admin token)
-    if admin_token:
-        test_flota_module(result, admin_token)
-    else:
-        result.add_fail("Test 4: GET /api/modules/flota", "Skipped - no admin token from Test 1")
-    print()
-    
-    # Test 5: Dashboard (requires admin token)
-    if admin_token:
-        test_dashboard(result, admin_token)
-    else:
-        result.add_fail("Test 5: GET /api/dashboard", "Skipped - no admin token from Test 1")
-    print()
-    
-    # Test 6: Wrong password
-    test_wrong_password(result)
-    print()
+    # Cleanup
+    try:
+        cleanup()
+    except Exception as e:
+        log_info(f"Cleanup failed: {e}")
     
     # Summary
-    success = result.summary()
+    print(f"\n{BLUE}{'='*80}{RESET}")
+    print(f"{BLUE}TEST SUMMARY{RESET}")
+    print(f"{BLUE}{'='*80}{RESET}")
     
-    # Exit with appropriate code
-    sys.exit(0 if success else 1)
+    passed = sum(1 for _, _, result in results if result)
+    total = len(results)
+    
+    for test_num, test_name, result in results:
+        status = f"{GREEN}✓ PASS{RESET}" if result else f"{RED}✗ FAIL{RESET}"
+        print(f"Test {test_num} ({test_name}): {status}")
+    
+    print(f"\n{BLUE}Total: {passed}/{total} tests passed{RESET}")
+    
+    if passed == total:
+        print(f"{GREEN}{'='*80}{RESET}")
+        print(f"{GREEN}ALL TESTS PASSED ✓{RESET}")
+        print(f"{GREEN}{'='*80}{RESET}")
+        return 0
+    else:
+        print(f"{RED}{'='*80}{RESET}")
+        print(f"{RED}SOME TESTS FAILED ✗{RESET}")
+        print(f"{RED}{'='*80}{RESET}")
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

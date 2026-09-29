@@ -12,7 +12,7 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-const empty = { username: "", name: "", email: "", role: "user", ciudad: "", region: "", password: "" };
+const empty = { documento: "", name: "", email: "", role: "user", ciudad: "", region: "", password: "" };
 
 const ROLE_OPTIONS = [
   { value: "admin", label: "Administrador" },
@@ -20,6 +20,7 @@ const ROLE_OPTIONS = [
   { value: "lider", label: "Líder" },
   { value: "tesorero", label: "Tesorero" },
   { value: "gerente", label: "Gerente" },
+  { value: "tecnico", label: "Técnico" },
   { value: "user", label: "Usuario" },
 ];
 const ROLE_LABELS = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
@@ -29,6 +30,7 @@ const ROLE_BADGE = {
   coordinador: "bg-blue-600 text-white",
   tesorero: "bg-amber-500 text-white",
   lider: "bg-indigo-500 text-white",
+  tecnico: "bg-teal-600 text-white",
   user: "bg-neutral-200 text-neutral-800",
 };
 
@@ -69,7 +71,7 @@ export default function UsersPage() {
     e.preventDefault();
     try {
       if (editing) {
-        const payload = { name: form.name, email: form.email, role: form.role, ciudad: form.ciudad || null, region: form.region || null };
+        const payload = { name: form.name, email: form.email, role: form.role, ciudad: form.ciudad || null, region: form.region || null, documento: form.documento };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editing.id}`, payload);
         toast.success("Usuario actualizado");
@@ -108,7 +110,7 @@ export default function UsersPage() {
         <Table>
           <TableHeader>
             <TableRow className="bg-neutral-50">
-              <TableHead className="text-xs uppercase tracking-wider">Usuario</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">Documento</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Nombre</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Email</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Ciudad</TableHead>
@@ -120,7 +122,7 @@ export default function UsersPage() {
           <TableBody>
             {users.map((u) => (
               <TableRow key={u.id} data-testid="user-row">
-                <TableCell className="font-mono text-sm">@{u.username}</TableCell>
+                <TableCell className="font-mono text-sm">{u.documento || u.username}</TableCell>
                 <TableCell className="font-medium">{u.name}</TableCell>
                 <TableCell className="text-neutral-600 text-sm">{u.email || "—"}</TableCell>
                 <TableCell>{u.ciudad ? <Badge variant="secondary">{u.ciudad}</Badge> : <span className="text-neutral-400 text-sm">Todas</span>}</TableCell>
@@ -148,8 +150,8 @@ export default function UsersPage() {
           </DialogHeader>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
-              <Label>Usuario</Label>
-              <Input value={form.username} onChange={(e) => setForm((s) => ({ ...s, username: e.target.value }))} disabled={!!editing} required data-testid="user-username-input" />
+              <Label>Documento de identidad</Label>
+              <Input value={form.documento} onChange={(e) => setForm((s) => ({ ...s, documento: e.target.value }))} required data-testid="user-documento-input" placeholder="Cédula / documento (será el usuario de acceso)" />
             </div>
             <div className="space-y-2">
               <Label>Nombre completo</Label>

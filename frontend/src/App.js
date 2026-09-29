@@ -13,7 +13,6 @@ import RutasMap from "@/pages/RutasMap";
 import VehicleHistory from "@/pages/VehicleHistory";
 import ToolsDashboard from "@/pages/tools/ToolsDashboard";
 import HerramientasPage from "@/pages/tools/HerramientasPage";
-import TecnicosPage from "@/pages/tools/TecnicosPage";
 import AsignacionesPage from "@/pages/tools/AsignacionesPage";
 import DevolucionesPage from "@/pages/tools/DevolucionesPage";
 import TraspasosPage from "@/pages/tools/TraspasosPage";
@@ -61,7 +60,6 @@ function App() {
           <Route path="/herramientas" element={<Protected><ToolsLayout /></Protected>}>
             <Route index element={<ToolsDashboard />} />
             <Route path="inventario" element={<HerramientasPage />} />
-            <Route path="tecnicos" element={<TecnicosPage />} />
             <Route path="asignaciones" element={<AsignacionesPage />} />
             <Route path="devoluciones" element={<DevolucionesPage />} />
             <Route path="traspasos" element={<TraspasosPage />} />

@@ -89,19 +89,21 @@ class LoginIn(BaseModel):
     username: str
     password: str
 
-ALLOWED_ROLES = ("admin", "user", "coordinador", "lider", "tesorero", "gerente")
+ALLOWED_ROLES = ("admin", "user", "coordinador", "lider", "tesorero", "gerente", "tecnico")
 
 class UserCreate(BaseModel):
-    username: str
+    username: Optional[str] = None
+    documento: Optional[str] = None
     password: str
     name: str
     email: Optional[str] = None
-    role: str = "user"  # admin | user | coordinador | lider | tesorero | gerente
+    role: str = "user"  # admin | user | coordinador | lider | tesorero | gerente | tecnico
     ciudad: Optional[str] = None
     region: Optional[str] = None  # 'R1' | 'R2' | None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    documento: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
@@ -148,20 +150,54 @@ async def me(user: dict = Depends(get_current_user)):
 # ---- Users mgmt (admin) ----
 @api.get("/users")
 async def list_users(user: dict = Depends(require_admin)):
-    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(5000)
     return docs
+
+
+async def _sync_tecnico_mirror(u: dict):
+    """Mantiene db.tool_technicians sincronizado con los usuarios rol 'tecnico' (mismo id),
+    para que el módulo de Herramientas siga funcionando sin cambios."""
+    try:
+        if u.get("role") == "tecnico":
+            name = (u.get("name") or "").strip()
+            parts = name.split()
+            nombre = parts[0] if parts else name
+            apellido = " ".join(parts[1:]) if len(parts) > 1 else ""
+            codigo = u.get("documento") or u.get("username")
+            await db.tool_technicians.update_one(
+                {"id": u["id"]},
+                {"$set": {
+                    "id": u["id"],
+                    "codigo": codigo,
+                    "nombre": nombre or name,
+                    "apellido": apellido,
+                    "ciudad": u.get("ciudad"),
+                    "email": u.get("email"),
+                    "cedula": u.get("documento"),
+                }},
+                upsert=True,
+            )
+        else:
+            await db.tool_technicians.delete_one({"id": u["id"]})
+    except Exception as e:
+        logging.warning(f"tecnico mirror sync failed: {e}")
+
 
 @api.post("/users")
 async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
-    username = payload.username.lower().strip()
+    documento = (payload.documento or payload.username or "").strip()
+    username = (payload.username or payload.documento or "").lower().strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Documento de identidad requerido")
     exists = await db.users.find_one({"username": username})
     if exists:
-        raise HTTPException(status_code=400, detail="Nombre de usuario ya existe")
+        raise HTTPException(status_code=400, detail="Usuario/documento ya existe")
     if payload.role not in ALLOWED_ROLES:
         raise HTTPException(status_code=400, detail="Rol inválido")
     doc = {
         "id": str(uuid.uuid4()),
         "username": username,
+        "documento": documento or username,
         "name": payload.name.strip(),
         "email": payload.email,
         "role": payload.role,
@@ -171,6 +207,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.users.insert_one(doc)
+    await _sync_tecnico_mirror(doc)
     doc.pop("password_hash", None)
     doc.pop("_id", None)
     return doc
@@ -180,6 +217,16 @@ async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(re
     update: Dict[str, Any] = {}
     if payload.name is not None: update["name"] = payload.name
     if payload.email is not None: update["email"] = payload.email
+    if payload.documento is not None:
+        doc_val = (payload.documento or "").strip()
+        if doc_val:
+            # el documento es el identificador de login (usuario)
+            new_username = doc_val.lower()
+            clash = await db.users.find_one({"username": new_username, "id": {"$ne": user_id}})
+            if clash:
+                raise HTTPException(status_code=400, detail="Otro usuario ya tiene ese documento")
+            update["documento"] = doc_val
+            update["username"] = new_username
     if payload.role is not None:
         if payload.role not in ALLOWED_ROLES:
             raise HTTPException(status_code=400, detail="Rol inválido")
@@ -195,6 +242,9 @@ async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(re
     res = await db.users.update_one({"id": user_id}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    updated = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if updated:
+        await _sync_tecnico_mirror(updated)
     return {"ok": True}
 
 @api.delete("/users/{user_id}")
@@ -202,6 +252,7 @@ async def delete_user(user_id: str, user: dict = Depends(require_admin)):
     if user_id == user["id"]:
         raise HTTPException(status_code=400, detail="No puedes eliminarte a ti mismo")
     await db.users.delete_one({"id": user_id})
+    await db.tool_technicians.delete_one({"id": user_id})
     return {"ok": True}
 
 # ---- Generic CRUD for modules ----
@@ -256,6 +307,18 @@ def _validate_module(m: str) -> str:
 
 @api.get("/modules/{module}")
 async def list_records(module: str, ciudades: Optional[str] = None, user: dict = Depends(get_current_user)):
+    if module == "tecnicos":
+        techs = await db.users.find({"role": "tecnico"}, {"_id": 0, "password_hash": 0}).to_list(10000)
+        return [
+            {
+                "id": t["id"],
+                "nombre": t.get("name"),
+                "documento": t.get("documento") or t.get("username"),
+                "ciudad": t.get("ciudad"),
+                "Ubicacion": t.get("ciudad"),
+            }
+            for t in sorted(techs, key=lambda x: (x.get("name") or ""))
+        ]
     col = _validate_module(module)
     docs = await db[col].find({}, {"_id": 0}).to_list(5000)
     cities = await _resolve_cities(module, user, ciudades)
@@ -1161,6 +1224,7 @@ async def _startup():
     await seed_admin_and_data()
     await _seed_warehouses()
     await _seed_expenses_module()
+    await _migrate_unify_tecnicos()
 
 @app.on_event("shutdown")
 async def _shutdown():
@@ -2518,6 +2582,79 @@ STAGE_LABELS = {
     E_PEND_COORD_FINAL: "Aprobación final coordinador",
     E_PEND_GERENCIA: "Aprobación gerencia",
 }
+
+
+async def _migrate_unify_tecnicos():
+    """Unifica técnicos: (1) documento=username en usuarios sin documento,
+    (2) migra tool_technicians a usuarios rol 'tecnico' (mismo id),
+    (3) migra conductores a usuarios rol 'tecnico'. Idempotente."""
+    try:
+        # (1) documento por defecto = username
+        await db.users.update_many(
+            {"$or": [{"documento": {"$exists": False}}, {"documento": None}]},
+            [{"$set": {"documento": "$username"}}],
+        )
+    except Exception:
+        # Fallback si la versión de Mongo no soporta pipeline update
+        async for u in db.users.find({"$or": [{"documento": {"$exists": False}}, {"documento": None}]}, {"username": 1, "id": 1}):
+            await db.users.update_one({"id": u["id"]}, {"$set": {"documento": u.get("username")}})
+
+    def _norm_user(s):
+        return str(s or "").lower().strip().replace(" ", "")
+
+    # (2) tool_technicians -> usuarios (reutiliza id para no romper asignaciones)
+    techs = await db.tool_technicians.find({}, {"_id": 0}).to_list(20000)
+    for t in techs:
+        if not t.get("id"):
+            continue
+        if await db.users.find_one({"id": t["id"]}):
+            continue
+        codigo = t.get("codigo") or t.get("cedula") or t["id"][:8]
+        username = _norm_user(codigo)
+        # evitar choque de username
+        if await db.users.find_one({"username": username}):
+            username = f"{username}-{t['id'][:4]}"
+        name = f"{(t.get('nombre') or '').strip()} {(t.get('apellido') or '').strip()}".strip() or codigo
+        await db.users.insert_one({
+            "id": t["id"],
+            "username": username,
+            "documento": str(codigo),
+            "name": name,
+            "email": t.get("email"),
+            "role": "tecnico",
+            "ciudad": t.get("ciudad"),
+            "region": None,
+            "password_hash": hash_password(GENERIC_PASSWORD),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # (3) conductores -> usuarios rol tecnico (+ espejo tool_technicians)
+    conductores = await db.conductores.find({}, {"_id": 0}).to_list(20000)
+    for c in conductores:
+        doc_id = str(c.get("Doc Identidad") or "").strip()
+        nombre = str(c.get("Conductor") or "").strip()
+        if not nombre and not doc_id:
+            continue
+        username = _norm_user(doc_id or nombre)
+        if not username:
+            continue
+        if await db.users.find_one({"username": username}):
+            continue
+        u = {
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "documento": doc_id or username,
+            "name": nombre or doc_id,
+            "email": (str(c.get("Correo") or "").strip() or None),
+            "role": "tecnico",
+            "ciudad": None,
+            "region": None,
+            "password_hash": hash_password(GENERIC_PASSWORD),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(u)
+        await _sync_tecnico_mirror(u)
+
 
 
 async def _seed_expenses_module():
