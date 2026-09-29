@@ -70,6 +70,14 @@ export default function ToolsLayout() {
           <NavLink to="/herramientas/bajas" className={navClass} data-testid="nav-bajas">
             <Ban className="w-4 h-4" /> <span>Bajas</span>
           </NavLink>
+          {user?.role === "admin" && (
+            <>
+              <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Administración</div>
+              <NavLink to="/herramientas/usuarios" className={navClass} data-testid="nav-tools-usuarios">
+                <UserRound className="w-4 h-4" /> <span>Usuarios</span>
+              </NavLink>
+            </>
+          )}
         </nav>
 
         <div className="p-3 border-t border-neutral-200">

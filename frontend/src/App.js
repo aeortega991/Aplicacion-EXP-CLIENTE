@@ -70,6 +70,7 @@ function App() {
             <Route path="reporte-actual" element={<ReporteActual />} />
             <Route path="reporte-historico" element={<ReporteHistorico />} />
             <Route path="bajas" element={<BajasPage />} />
+            <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
           <Route path="/gastos" element={<Protected><GastosLayout /></Protected>}>
             <Route index element={<GastosDashboard />} />
