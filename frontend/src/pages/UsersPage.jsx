@@ -12,11 +12,30 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-const empty = { username: "", name: "", email: "", role: "user", ciudad: "", password: "" };
+const empty = { username: "", name: "", email: "", role: "user", ciudad: "", region: "", password: "" };
+
+const ROLE_OPTIONS = [
+  { value: "admin", label: "Administrador" },
+  { value: "coordinador", label: "Coordinador" },
+  { value: "lider", label: "Líder" },
+  { value: "tesorero", label: "Tesorero" },
+  { value: "gerente", label: "Gerente" },
+  { value: "user", label: "Usuario" },
+];
+const ROLE_LABELS = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
+const ROLE_BADGE = {
+  admin: "bg-red-600 text-white",
+  gerente: "bg-purple-600 text-white",
+  coordinador: "bg-blue-600 text-white",
+  tesorero: "bg-amber-500 text-white",
+  lider: "bg-indigo-500 text-white",
+  user: "bg-neutral-200 text-neutral-800",
+};
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [cities, setCities] = useState([]);
+  const [regionMap, setRegionMap] = useState({});
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -30,8 +49,18 @@ export default function UsersPage() {
   };
   useEffect(() => {
     load();
-    api.get("/cities").then((r) => setCities(r.data.cities || [])).catch(() => setCities([]));
+    Promise.all([
+      api.get("/cities").then((r) => r.data.cities || []).catch(() => []),
+      api.get("/expenses/meta").then((r) => r.data).catch(() => ({ cities: [], regions: {} })),
+    ]).then(([flotaCities, meta]) => {
+      setRegionMap(meta.regions || {});
+      const all = Array.from(new Set([...(flotaCities || []), ...((meta && meta.cities) || [])])).sort();
+      setCities(all);
+    });
   }, []);
+
+  // Ciudades disponibles según la región seleccionada
+  const ciudadOptions = form.region && regionMap[form.region] ? regionMap[form.region] : cities;
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
   const openEdit = (u) => { setEditing(u); setForm({ ...empty, ...u, password: "" }); setOpen(true); };
@@ -40,12 +69,12 @@ export default function UsersPage() {
     e.preventDefault();
     try {
       if (editing) {
-        const payload = { name: form.name, email: form.email, role: form.role, ciudad: form.ciudad || null };
+        const payload = { name: form.name, email: form.email, role: form.role, ciudad: form.ciudad || null, region: form.region || null };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editing.id}`, payload);
         toast.success("Usuario actualizado");
       } else {
-        await api.post("/users", { ...form, ciudad: form.ciudad || null });
+        await api.post("/users", { ...form, ciudad: form.ciudad || null, region: form.region || null });
         toast.success("Usuario creado");
       }
       setOpen(false);
@@ -83,6 +112,7 @@ export default function UsersPage() {
               <TableHead className="text-xs uppercase tracking-wider">Nombre</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Email</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Ciudad</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">Región</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Rol</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wider">Acciones</TableHead>
             </TableRow>
@@ -94,9 +124,10 @@ export default function UsersPage() {
                 <TableCell className="font-medium">{u.name}</TableCell>
                 <TableCell className="text-neutral-600 text-sm">{u.email || "—"}</TableCell>
                 <TableCell>{u.ciudad ? <Badge variant="secondary">{u.ciudad}</Badge> : <span className="text-neutral-400 text-sm">Todas</span>}</TableCell>
+                <TableCell>{u.region ? <Badge variant="outline">{u.region}</Badge> : <span className="text-neutral-400 text-sm">—</span>}</TableCell>
                 <TableCell>
-                  <Badge className={u.role === "admin" ? "bg-red-600 text-white" : "bg-neutral-200 text-neutral-800"}>
-                    {u.role}
+                  <Badge className={ROLE_BADGE[u.role] || "bg-neutral-200 text-neutral-800"}>
+                    {ROLE_LABELS[u.role] || u.role}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
@@ -134,18 +165,27 @@ export default function UsersPage() {
                 <Select value={form.role} onValueChange={(v) => setForm((s) => ({ ...s, role: v }))}>
                   <SelectTrigger data-testid="user-role-select"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Administrador</SelectItem>
-                    <SelectItem value="user">Usuario</SelectItem>
+                    {ROLE_OPTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Ciudad {form.role === "admin" ? <span className="text-xs text-neutral-400">(opcional)</span> : null}</Label>
+                <Label>Región {["coordinador", "lider"].includes(form.role) ? <span className="text-xs text-red-500">*</span> : <span className="text-xs text-neutral-400">(opcional)</span>}</Label>
+                <Select value={form.region || "__none__"} onValueChange={(v) => setForm((s) => ({ ...s, region: v === "__none__" ? "" : v, ciudad: "" }))}>
+                  <SelectTrigger data-testid="user-region-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Sin región —</SelectItem>
+                    {Object.keys(regionMap).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>Ciudad {form.role === "admin" ? <span className="text-xs text-neutral-400">(opcional)</span> : null}{form.region ? <span className="text-xs text-neutral-400"> · región {form.region}</span> : null}</Label>
                 <Select value={form.ciudad || "__all__"} onValueChange={(v) => setForm((s) => ({ ...s, ciudad: v === "__all__" ? "" : v }))}>
                   <SelectTrigger data-testid="user-ciudad-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                   <SelectContent className="max-h-64">
                     <SelectItem value="__all__">— Sin restricción —</SelectItem>
-                    {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    {ciudadOptions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
