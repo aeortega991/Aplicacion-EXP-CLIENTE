@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut } from "lucide-react";
+import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -39,6 +39,14 @@ export default function GastosLayout() {
           <NavLink to="/gastos/solicitudes" className={navClass} data-testid="nav-gastos-solicitudes">
             <FileText className="w-4 h-4" /> <span>Solicitudes</span>
           </NavLink>
+          {user?.role === "admin" && (
+            <>
+              <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-neutral-400">Administración</div>
+              <NavLink to="/gastos/usuarios" className={navClass} data-testid="nav-gastos-usuarios">
+                <Users className="w-4 h-4" /> <span>Usuarios</span>
+              </NavLink>
+            </>
+          )}
         </nav>
 
         <div className="p-3 border-t border-neutral-200">

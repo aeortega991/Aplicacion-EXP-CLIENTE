@@ -74,6 +74,7 @@ function App() {
           <Route path="/gastos" element={<Protected><GastosLayout /></Protected>}>
             <Route index element={<GastosDashboard />} />
             <Route path="solicitudes" element={<SolicitudesPage />} />
+            <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
