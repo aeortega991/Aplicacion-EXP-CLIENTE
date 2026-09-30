@@ -3491,6 +3491,46 @@ async def expense_pdf_public(token: str):
 
 
 
+# ---------------------------------------------------------------------------
+# Health checks + envoltorio de respuesta estandar (Directriz B.15.7 / B.17.2 / A.9.1)
+# ---------------------------------------------------------------------------
+def response_structure(data=None, message="OK", error=None, status_code=200) -> dict:
+    """Construye el envoltorio corporativo ResponseStructure<T> (Directriz B.15.7).
+
+    Unifica la forma de las respuestas con body: data, message (texto de negocio),
+    error (codigo tecnico estable o None) y statusCode. Se aplica en endpoints nuevos;
+    el retrofit de los endpoints existentes queda pendiente para no romper el contrato
+    actual del frontend (ver docs/compliance-matrix.md, BK-05).
+
+    @author Equipo de ingenieria
+    @since 2026-09-29
+    """
+    return {"data": data, "message": message, "error": error, "statusCode": status_code}
+
+
+@api.get("/health/live")
+async def health_live():
+    """Liveness probe: indica si el proceso sigue vivo (Directriz B.17.2)."""
+    return response_structure(data={"status": "alive"}, message="Servicio activo")
+
+
+@api.get("/health/ready")
+async def health_ready():
+    """Readiness probe: verifica dependencias (MongoDB) antes de recibir trafico."""
+    try:
+        await db.command("ping")
+        return response_structure(data={"status": "ready", "mongo": "up"}, message="Listo")
+    except Exception as e:
+        logging.error(f"readiness check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content=response_structure(data={"status": "not_ready", "mongo": "down"},
+                                       message="Dependencia no disponible",
+                                       error="DEPENDENCY_UNAVAILABLE", status_code=503),
+        )
+
+
+
 app.include_router(api)
 
 app.add_middleware(

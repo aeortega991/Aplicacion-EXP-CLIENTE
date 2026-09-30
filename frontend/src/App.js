@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
@@ -41,8 +42,9 @@ const AdminOnly = ({ children }) => {
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<Protected><Hub /></Protected>} />
@@ -79,7 +81,8 @@ function App() {
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
-    </AuthProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
