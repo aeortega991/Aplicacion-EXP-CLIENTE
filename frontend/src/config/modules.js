@@ -7,7 +7,7 @@ export const MODULES = [
     label: "Flota",
     icon: "Truck",
     fields: [
-      { key: "Nro", label: "Nro", type: "number" },
+      { key: "Nro", label: "ID", type: "number", autoGenerate: true },
       { key: "Tipo", label: "Tipo", type: "select", options: ["CAMIONETA", "CAMION", "AUTOMOVIL", "MOTO", "FURGON"] },
       { key: "Marca", label: "Marca", type: "text" },
       { key: "Modelo", label: "Modelo", type: "text" },
@@ -27,7 +27,7 @@ export const MODULES = [
       { key: "Status", label: "Status", type: "select", options: ["Activo", "Inactivo"] },
       { key: "Usuario asignado", label: "Usuario Asignado (Técnico)", type: "select", dynamicSource: "tecnicos", sourceKey: "nombre" },
     ],
-    listColumns: ["Placa Vehiculo", "Tipo", "Marca", "Modelo", "Año de fabricacion", "Ubicacion", "Estado Vehiculo", "Status", "Usuario asignado"],
+    listColumns: ["Nro", "Placa Vehiculo", "Tipo", "Marca", "Modelo", "Año de fabricacion", "Ubicacion", "Estado Vehiculo", "Status", "Usuario asignado"],
   },
   {
     key: "seguros",

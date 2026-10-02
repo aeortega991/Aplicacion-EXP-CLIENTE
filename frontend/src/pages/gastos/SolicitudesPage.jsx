@@ -148,7 +148,7 @@ export default function SolicitudesPage() {
         <Table>
           <TableHeader>
             <TableRow className="bg-neutral-50">
-              <TableHead className="text-xs uppercase tracking-wider">N°</TableHead>
+              <TableHead className="text-xs uppercase tracking-wider">ID</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Proveedor</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Cuenta</TableHead>
               <TableHead className="text-xs uppercase tracking-wider">Ciudad</TableHead>

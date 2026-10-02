@@ -446,8 +446,8 @@ async def list_records(module: str, ciudades: Optional[str] = None, user: dict =
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
     data = dict(payload.data)
-    # Auto-generate ascending Nro for mantenimiento if not supplied
-    if module == "mantenimiento" and not data.get("Nro"):
+    # Auto-generate ascending Nro for mantenimiento/flota if not supplied
+    if module in ("mantenimiento", "flota") and not data.get("Nro"):
         docs = await db[col].find({}, {"Nro": 1, "_id": 0}).to_list(20000)
         max_nro = 0
         for d in docs:
