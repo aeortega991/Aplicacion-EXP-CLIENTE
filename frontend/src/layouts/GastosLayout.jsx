@@ -1,6 +1,8 @@
 import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut, Users } from "lucide-react";
+import api from "@/lib/api";
+import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut, Users, Bell, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -8,6 +10,19 @@ export default function GastosLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const doLogout = () => { logout(); navigate("/login"); };
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const fetchCount = () => {
+      api.get("/expenses/alerts")
+        .then((r) => { if (active) setAlertCount(r.data.count || 0); })
+        .catch(() => {});
+    };
+    fetchCount();
+    const t = setInterval(fetchCount, 60000);
+    return () => { active = false; clearInterval(t); };
+  }, []);
 
   const navClass = ({ isActive }) =>
     `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
@@ -36,8 +51,19 @@ export default function GastosLayout() {
           <NavLink to="/gastos" end className={navClass} data-testid="nav-gastos-home">
             <LayoutDashboard className="w-4 h-4" /> <span>Dashboard</span>
           </NavLink>
+          <NavLink to="/gastos/alertas" className={navClass} data-testid="nav-gastos-alertas">
+            <Bell className="w-4 h-4" /> <span className="flex-1">Alertas</span>
+            {alertCount > 0 && (
+              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold" data-testid="alertas-badge">
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
+          </NavLink>
           <NavLink to="/gastos/solicitudes" className={navClass} data-testid="nav-gastos-solicitudes">
             <FileText className="w-4 h-4" /> <span>Solicitudes</span>
+          </NavLink>
+          <NavLink to="/gastos/reportes" className={navClass} data-testid="nav-gastos-reportes">
+            <BarChart3 className="w-4 h-4" /> <span>Reportes</span>
           </NavLink>
           {user?.role === "admin" && (
             <>

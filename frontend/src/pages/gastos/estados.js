@@ -22,3 +22,16 @@ export const FLOW_STEPS = [
 export function estadoBadge(estado) {
   return ESTADO_STYLE[estado] || { label: estado, cls: "bg-neutral-100 text-neutral-700 border-neutral-200" };
 }
+
+// Qué acción se requiere en cada estado pendiente (para el centro de alertas)
+export const ACCION_REQUERIDA = {
+  pend_coordinador: "Aprobar o rechazar la solicitud",
+  pend_presupuesto: "Asignar el presupuesto",
+  pend_factura: "Cargar la factura",
+  pend_aprob_coordinador: "Aprobación final (comparar factura vs. cotización)",
+  pend_aprob_gerencia: "Aprobación de gerencia",
+};
+
+export function accionRequerida(estado) {
+  return ACCION_REQUERIDA[estado] || "Requiere tu atención";
+}

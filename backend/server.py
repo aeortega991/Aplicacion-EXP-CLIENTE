@@ -330,6 +330,94 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
     doc.pop("_id", None)
     return doc
 
+USER_TEMPLATE_HEADERS = ["documento", "name", "email", "role", "ciudad", "region", "password"]
+USER_DEFAULT_PASSWORD = "indurama123"
+
+
+@api.get("/users/template")
+async def users_template(user: dict = Depends(require_admin)):
+    """Plantilla Excel para carga masiva de usuarios. Solo administradores."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Usuarios"
+    ws.append(USER_TEMPLATE_HEADERS)
+    ws.append(["0102030405", "Juan Pérez", "juan.perez@indurama.com", "lider", "AMBATO", "R1", ""])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0033A0")
+    for i, h in enumerate(USER_TEMPLATE_HEADERS, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(16, len(h) + 10)
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="plantilla_usuarios.xlsx"'},
+    )
+
+
+@api.post("/users/bulk-import")
+async def users_bulk_import(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Carga masiva de usuarios desde Excel. Solo administradores. 'documento' = login.
+    Si la contraseña viene vacía se asigna la contraseña por defecto."""
+    import openpyxl
+    from io import BytesIO
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Archivo Excel inválido (.xlsx)")
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+    headers = [str(h).strip().lower() if h is not None else "" for h in rows[0]]
+    inserted = 0
+    errors = []
+    seen = set()
+    for idx, row in enumerate(rows[1:], start=2):
+        if row is None or all(c is None or str(c).strip() == "" for c in row):
+            continue
+        rec = {headers[i]: row[i] for i in range(min(len(headers), len(row))) if headers[i]}
+        documento = str(rec.get("documento") or "").strip()
+        name = str(rec.get("name") or rec.get("nombre") or "").strip()
+        if not documento:
+            errors.append(f"Fila {idx}: falta 'documento'"); continue
+        if not name:
+            errors.append(f"Fila {idx}: falta 'name'"); continue
+        username = documento.lower()
+        role = str(rec.get("role") or "user").strip().lower()
+        if role not in ALLOWED_ROLES:
+            errors.append(f"Fila {idx}: rol inválido '{role}'"); continue
+        if username in seen:
+            errors.append(f"Fila {idx}: documento duplicado en el archivo '{documento}'"); continue
+        if await db.users.find_one({"username": username}):
+            errors.append(f"Fila {idx}: el documento '{documento}' ya existe"); continue
+        seen.add(username)
+        password = str(rec.get("password") or "").strip() or USER_DEFAULT_PASSWORD
+        doc = {
+            "id": str(uuid.uuid4()),
+            "username": username,
+            "documento": documento,
+            "name": name,
+            "email": (str(rec.get("email")).strip() if rec.get("email") else None),
+            "role": role,
+            "ciudad": (str(rec.get("ciudad")).strip().upper() if rec.get("ciudad") else None),
+            "region": (str(rec.get("region")).strip().upper() if rec.get("region") else None),
+            "password_hash": hash_password(password),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(doc)
+        await _sync_tecnico_mirror(doc)
+        inserted += 1
+    return {"inserted": inserted, "errors": errors, "total_filas": len(rows) - 1}
+
+
 @api.patch("/users/{user_id}")
 async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(require_admin)):
     update: Dict[str, Any] = {}
@@ -3539,6 +3627,30 @@ async def list_expenses(
         return True
     docs = [_public_expense(d) for d in docs if _in_range(d)]
     return docs
+
+
+# Estados pendientes que requieren acción de cada rol
+ROLE_PENDING_ESTADOS = {
+    "coordinador": [E_PEND_COORD, E_PEND_COORD_FINAL],
+    "tesorero": [E_PEND_PRESUP],
+    "gerente": [E_PEND_GERENCIA],
+    "lider": [E_PEND_FACTURA],
+    "user": [E_PEND_FACTURA],
+    "admin": [E_PEND_COORD, E_PEND_PRESUP, E_PEND_FACTURA, E_PEND_COORD_FINAL, E_PEND_GERENCIA],
+}
+
+
+@api.get("/expenses/alerts")
+async def expenses_alerts(user: dict = Depends(get_current_user)):
+    """Solicitudes pendientes de la autorización/acción del usuario actual, según su rol
+    y alcance (región para coordinador, propias para líder). Devuelve conteo + items."""
+    estados = ROLE_PENDING_ESTADOS.get(user.get("role"), [])
+    if not estados:
+        return {"count": 0, "items": []}
+    q = dict(_expense_scope_query(user) or {})
+    q["estado"] = {"$in": estados}
+    docs = await db.expenses.find(q, {"_id": 0}).sort("seq", -1).to_list(2000)
+    return {"count": len(docs), "items": [_public_expense(d) for d in docs]}
 
 
 @api.get("/expenses/dashboard")

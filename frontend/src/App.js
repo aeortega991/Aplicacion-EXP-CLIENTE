@@ -25,6 +25,8 @@ import BajasPage from "@/pages/tools/BajasPage";
 import GastosLayout from "@/layouts/GastosLayout";
 import GastosDashboard from "@/pages/gastos/GastosDashboard";
 import SolicitudesPage from "@/pages/gastos/SolicitudesPage";
+import GastosAlertas from "@/pages/gastos/GastosAlertas";
+import GastosReportes from "@/pages/gastos/GastosReportes";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -76,7 +78,9 @@ function App() {
           </Route>
           <Route path="/gastos" element={<Protected><GastosLayout /></Protected>}>
             <Route index element={<GastosDashboard />} />
+            <Route path="alertas" element={<GastosAlertas />} />
             <Route path="solicitudes" element={<SolicitudesPage />} />
+            <Route path="reportes" element={<GastosReportes />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

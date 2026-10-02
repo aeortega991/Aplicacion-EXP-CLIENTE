@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import BulkUploadDialog from "@/components/BulkUploadDialog";
 
 const empty = { documento: "", name: "", email: "", role: "user", ciudad: "", region: "", password: "" };
 
@@ -35,6 +37,7 @@ const ROLE_BADGE = {
 };
 
 export default function UsersPage() {
+  const { isAdmin } = useAuth();
   const [users, setUsers] = useState([]);
   const [cities, setCities] = useState([]);
   const [regionMap, setRegionMap] = useState({});
@@ -101,9 +104,20 @@ export default function UsersPage() {
           <h1 className="text-3xl font-bold tracking-tight">Usuarios</h1>
           <p className="text-sm text-neutral-500 mt-1">Gestión de usuarios y roles del sistema.</p>
         </div>
-        <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-user-button">
-          <Plus className="w-4 h-4" /> Nuevo usuario
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <BulkUploadDialog
+              templateUrl="/users/template"
+              importUrl="/users/bulk-import"
+              title="Carga masiva de usuarios"
+              templateName="plantilla_usuarios.xlsx"
+              onDone={load}
+            />
+          )}
+          <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-user-button">
+            <Plus className="w-4 h-4" /> Nuevo usuario
+          </Button>
+        </div>
       </div>
 
       <Card className="border border-neutral-200 shadow-none">
