@@ -20,6 +20,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Pencil, Trash2, Search, Download, ArrowUpDown, ArrowUp, ArrowDown, MapPin } from "lucide-react";
 import { toast } from "sonner";
+import BulkUploadDialog from "@/components/BulkUploadDialog";
 
 const fmtCell = (val, key) => {
   if (val === null || val === undefined || val === "") return "—";
@@ -257,6 +258,15 @@ export default function ModulePage({ moduleKey }) {
           >
             <Download className="w-4 h-4" /> Excel
           </Button>
+          {isAdmin && moduleKey === "flota" && (
+            <BulkUploadDialog
+              templateUrl={`/modules/${moduleKey}/template`}
+              importUrl={`/modules/${moduleKey}/bulk-import`}
+              title="Carga masiva de vehículos"
+              templateName="plantilla_vehiculos.xlsx"
+              onDone={load}
+            />
+          )}
         </div>
       </div>
 

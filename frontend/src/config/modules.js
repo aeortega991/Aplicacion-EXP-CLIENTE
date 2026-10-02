@@ -152,14 +152,13 @@ export const MODULES = [
       { key: "Fecha Salida", label: "Fecha Salida", type: "date" },
       { key: "Tipo", label: "Tipo", type: "select", options: ["Preventivo", "Correctivo"] },
       { key: "Kilometraje del Odómetro", label: "Km Odómetro", type: "number" },
-      { key: "Paquete de Mantenimiento", label: "Paquete", type: "text" },
       { key: "Causas del Mantenimiento", label: "Causas", type: "textarea" },
       { key: "Costo Total ($)", label: "Costo Total ($)", type: "number" },
       { key: "Fecha de Pago", label: "Fecha de Pago", type: "date" },
       { key: "Evidencias", label: "Evidencias (URL)", type: "url" },
       { key: "Observaciones", label: "Observaciones", type: "textarea" },
     ],
-    listColumns: ["Nro", "Placa Vehiculo", "Taller", "Fecha Entrada", "Fecha Salida", "Tipo", "Paquete de Mantenimiento", "Costo Total ($)", "Evidencias"],
+    listColumns: ["Nro", "Placa Vehiculo", "Taller", "Fecha Entrada", "Fecha Salida", "Tipo", "Costo Total ($)", "Evidencias"],
   },
 ];
 

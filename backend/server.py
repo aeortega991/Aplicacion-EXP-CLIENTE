@@ -14,7 +14,7 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status, BackgroundTasks, Header, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
@@ -654,6 +654,60 @@ async def get_alerts(dias: int = 30, user: dict = Depends(get_current_user)):
                 "km_restantes": int(falta),
             })
 
+    # Mantenimiento preventivo por kilometraje: cada 5000 km desde el último preventivo.
+    MNTO_INTERVALO_KM = 5000
+    mnto_all = await db.mantenimiento.find({}, {"_id": 0}).to_list(20000)
+    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(50000)
+    # Último odómetro por placa (de la última ruta: mayor Kms Final)
+    odom_actual = {}
+    for r in rutas_all:
+        p = str(r.get("Placa Vehiculo") or "").strip().upper()
+        if not p:
+            continue
+        kf = _num(r.get("Kms Final (Odómetro)"))
+        if kf and kf > odom_actual.get(p, 0):
+            odom_actual[p] = kf
+    # Último odómetro de mantenimiento preventivo por placa (base)
+    base_prev = {}
+    for m in mnto_all:
+        if str(m.get("Tipo") or "").strip().lower() != "preventivo":
+            continue
+        p = str(m.get("Placa Vehiculo") or "").strip().upper()
+        if not p:
+            continue
+        km = _num(m.get("Kilometraje del Odómetro"))
+        if km and km >= base_prev.get(p, 0):
+            base_prev[p] = km
+    for p, base in base_prev.items():
+        actual = odom_actual.get(p)
+        if not actual:
+            continue
+        recorrido = actual - base
+        proximo = base + MNTO_INTERVALO_KM
+        falta = proximo - actual
+        if recorrido >= MNTO_INTERVALO_KM:
+            alerts.append({
+                "tipo": "Mantenimiento",
+                "modulo": "mantenimiento",
+                "placa": p,
+                "descripcion": f"Mnto preventivo requerido — {int(recorrido):,} Km desde el último preventivo (cada {MNTO_INTERVALO_KM:,} Km)",
+                "fecha_vencimiento": None,
+                "dias_restantes": None,
+                "severity": "critico",
+                "km_atraso": int(recorrido - MNTO_INTERVALO_KM),
+            })
+        elif 0 <= falta <= 500:
+            alerts.append({
+                "tipo": "Mantenimiento",
+                "modulo": "mantenimiento",
+                "placa": p,
+                "descripcion": f"Mnto preventivo próximo — faltan {int(falta):,} Km (cada {MNTO_INTERVALO_KM:,} Km)",
+                "fecha_vencimiento": None,
+                "dias_restantes": None,
+                "severity": "advertencia",
+                "km_restantes": int(falta),
+            })
+
     impuestos = await db.impuestos.find({}, {"_id": 0}).to_list(5000)
     for i in impuestos:
         if not i.get("Fecha de pago"):
@@ -716,6 +770,87 @@ async def export_module(module: str, user: dict = Depends(get_current_user)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _module_headers(docs: list) -> list:
+    """Encabezados para plantilla/import: claves de los documentos, sin 'id' ni internos."""
+    headers = list(dict.fromkeys(k for d in docs for k in d.keys() if not k.startswith("_") and k != "id"))
+    return headers
+
+
+@api.get("/modules/{module}/template")
+async def module_template(module: str, user: dict = Depends(require_admin)):
+    """Plantilla Excel (solo encabezados) para carga masiva. Solo administradores."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    col = _validate_module(module)
+    docs = await db[col].find({}, {"_id": 0}).to_list(2000)
+    headers = _module_headers(docs)
+    if not headers:
+        headers = ["Placa Vehiculo"] if module == "flota" else ["Nombre"]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Plantilla"
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0033A0")
+    for i, h in enumerate(headers, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(14, min(42, len(str(h)) + 4))
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="plantilla_{module}.xlsx"'},
+    )
+
+
+@api.post("/modules/{module}/bulk-import")
+async def module_bulk_import(module: str, file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Carga masiva desde Excel. Solo administradores. La primera fila debe ser los encabezados."""
+    import openpyxl
+    from io import BytesIO
+    col = _validate_module(module)
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Archivo Excel inválido (.xlsx)")
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+    headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+    inserted = 0
+    errors = []
+    to_insert = []
+    for idx, row in enumerate(rows[1:], start=2):
+        if row is None or all(c is None or str(c).strip() == "" for c in row):
+            continue
+        doc = {"id": str(uuid.uuid4())}
+        for h, val in zip(headers, row):
+            if not h or h.lower() == "id":
+                continue
+            if val is None:
+                continue
+            doc[h] = val
+        if len(doc) <= 1:
+            continue
+        # Auto Nro para mantenimiento si no viene
+        to_insert.append(doc)
+    if to_insert:
+        try:
+            await db[col].insert_many(to_insert)
+            inserted = len(to_insert)
+        except Exception as e:
+            errors.append(str(e))
+    return {"inserted": inserted, "errors": errors, "total_filas": len(rows) - 1}
+
+
 
 @api.get("/rutas/map")
 async def rutas_map(desde: Optional[str] = None, hasta: Optional[str] = None, user: dict = Depends(get_current_user)):
@@ -893,6 +1028,92 @@ async def vehicle_history(placa: str, user: dict = Depends(get_current_user)):
             "rutas_count": len(rutas),
         },
     }
+
+@api.get("/vehicles/history/summary")
+async def vehicles_history_summary(
+    placas: Optional[str] = None,
+    ciudad: Optional[str] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Resumen de rutas por periodo para uno o varios vehículos, o todos los de una ciudad.
+    Devuelve total de km recorridos, consumo promedio (Km/gal), galones y combustible ($)."""
+    flota = await db.flota.find({}, {"_id": 0}).to_list(10000)
+    placa_set = None
+    if placas:
+        placa_set = {p.strip().upper() for p in placas.split(",") if p.strip()}
+    ciudad_norm = (ciudad or "").strip().upper()
+    target = {}
+    for v in flota:
+        p = str(v.get("Placa Vehiculo") or "").strip().upper()
+        if not p:
+            continue
+        if placa_set is not None and p not in placa_set:
+            continue
+        if ciudad_norm and str(v.get("Ubicacion") or "").strip().upper() != ciudad_norm:
+            continue
+        target[p] = v
+    placas_objetivo = list(target.keys())
+
+    def _in_range(r):
+        f = str(r.get("Fecha de Salida") or "")[:10]
+        if desde and f and f < desde:
+            return False
+        if hasta and f and f > hasta:
+            return False
+        return True
+
+    per_vehiculo = {}
+    total_km = 0.0
+    total_gal = 0.0
+    total_comb = 0.0
+    total_rutas = 0
+    if placas_objetivo:
+        rutas = await db.rutas.find({"Placa Vehiculo": {"$in": placas_objetivo}}, {"_id": 0}).to_list(50000)
+        for r in rutas:
+            if not _in_range(r):
+                continue
+            p = str(r.get("Placa Vehiculo") or "").strip().upper()
+            km = _num(r.get("Kms Final (Odómetro)")) - _num(r.get("Kms Inicial (Odómetro)"))
+            if not (0 < km < 3000):
+                km = 0.0
+            gal = _num(r.get("Volumen de Combustible (gal)"))
+            comb = _num(r.get("Total Combustible ($)"))
+            pv = per_vehiculo.setdefault(p, {"placa": p, "ciudad": target[p].get("Ubicacion"),
+                                             "marca": target[p].get("Marca"), "modelo": target[p].get("Modelo"),
+                                             "km": 0.0, "galones": 0.0, "combustible": 0.0, "rutas": 0})
+            pv["km"] += km
+            pv["galones"] += gal
+            pv["combustible"] += comb
+            pv["rutas"] += 1
+            total_km += km
+            total_gal += gal
+            total_comb += comb
+            total_rutas += 1
+
+    detalle = []
+    for pv in per_vehiculo.values():
+        pv["consumo_promedio"] = round(pv["km"] / pv["galones"], 2) if pv["galones"] > 0 else 0
+        pv["km"] = round(pv["km"], 2)
+        pv["galones"] = round(pv["galones"], 2)
+        pv["combustible"] = round(pv["combustible"], 2)
+        detalle.append(pv)
+    detalle.sort(key=lambda x: -x["km"])
+
+    return {
+        "filtros": {"placas": placas_objetivo, "ciudad": ciudad_norm or None, "desde": desde, "hasta": hasta},
+        "totales": {
+            "vehiculos": len(placas_objetivo),
+            "km_recorridos": round(total_km, 2),
+            "galones": round(total_gal, 2),
+            "combustible": round(total_comb, 2),
+            "consumo_promedio": round(total_km / total_gal, 2) if total_gal > 0 else 0,
+            "rutas_count": total_rutas,
+        },
+        "por_vehiculo": detalle,
+    }
+
 
 def _fmt_money(v):
     try: return f"${float(v):,.2f}"
@@ -1352,6 +1573,102 @@ async def _next_tool_code() -> str:
 async def list_tools(user: dict = Depends(get_current_user)):
     docs = await db.tools.find({}, {"_id": 0}).to_list(5000)
     return docs
+
+TOOL_TEMPLATE_HEADERS = ["marca", "modelo", "serie", "descripcion", "fecha_compra", "valor"]
+
+
+@api.get("/tools/tools/template")
+async def tools_template(user: dict = Depends(require_admin)):
+    """Plantilla Excel para carga masiva de herramientas. Solo administradores."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Plantilla"
+    ws.append(TOOL_TEMPLATE_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="0033A0")
+    for i, h in enumerate(TOOL_TEMPLATE_HEADERS, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(16, len(h) + 6)
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="plantilla_herramientas.xlsx"'},
+    )
+
+
+@api.post("/tools/tools/bulk-import")
+async def tools_bulk_import(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    """Carga masiva de herramientas desde Excel. Solo administradores."""
+    import openpyxl
+    from io import BytesIO
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Archivo Excel inválido (.xlsx)")
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+    headers = [str(h).strip().lower() if h is not None else "" for h in rows[0]]
+    inserted = 0
+    errors = []
+    docs = []
+    # numeración secuencial a partir del último código
+    base_docs = await db.tools.find({}, {"_id": 0, "tool_id": 1}).to_list(20000)
+    max_n = 0
+    for d in base_docs:
+        code = str(d.get("tool_id") or "")
+        if code.startswith("TL-"):
+            try:
+                n = int(code[3:])
+                if n > max_n:
+                    max_n = n
+            except Exception:
+                pass
+    for idx, row in enumerate(rows[1:], start=2):
+        if row is None or all(c is None or str(c).strip() == "" for c in row):
+            continue
+        rec = {headers[i]: row[i] for i in range(min(len(headers), len(row))) if headers[i]}
+        marca = str(rec.get("marca") or "").strip()
+        if not marca:
+            errors.append(f"Fila {idx}: falta 'marca'")
+            continue
+        valor = rec.get("valor")
+        try:
+            valor = float(valor) if valor not in (None, "") else 0.0
+        except Exception:
+            valor = 0.0
+        max_n += 1
+        docs.append({
+            "id": str(uuid.uuid4()),
+            "tool_id": f"TL-{max_n:04d}",
+            "marca": marca,
+            "modelo": (str(rec.get("modelo")).strip() if rec.get("modelo") else None),
+            "serie": (str(rec.get("serie")).strip() if rec.get("serie") else None),
+            "descripcion": (str(rec.get("descripcion")).strip() if rec.get("descripcion") else None),
+            "fecha_compra": (str(rec.get("fecha_compra")).strip() if rec.get("fecha_compra") else None),
+            "valor": valor,
+            "estado": "Activa",
+            "_created_by": user["username"],
+            "_created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    if docs:
+        try:
+            await db.tools.insert_many(docs)
+            inserted = len(docs)
+        except Exception as e:
+            errors.append(str(e))
+    return {"inserted": inserted, "errors": errors, "total_filas": len(rows) - 1}
+
+
 
 @api.post("/tools/tools")
 async def create_tool(payload: ToolIn, user: dict = Depends(get_current_user)):
@@ -3563,6 +3880,57 @@ async def health_ready():
                                        message="Dependencia no disponible",
                                        error="DEPENDENCY_UNAVAILABLE", status_code=503),
         )
+
+WEBHOOK_CRON_SECRET = os.environ.get("WEBHOOK_CRON_SECRET", "")
+
+
+async def _send_route_reminders():
+    """Envía a todos los usuarios con correo el recordatorio de subir su ruta del día."""
+    users = await db.users.find({}, {"_id": 0, "email": 1, "name": 1}).to_list(10000)
+    link = f"{APP_BASE_URL}/vehiculos/rutas" if APP_BASE_URL else None
+    boton = ""
+    if link:
+        boton = (f'<p style="margin:18px 0"><a href="{escape(link)}" style="display:inline-block;'
+                 f'background:#0033a0;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;'
+                 f'font-size:13px;font-weight:600">Registrar mi ruta</a></p>')
+    sent = 0
+    for u in users:
+        to = u.get("email")
+        if not to:
+            continue
+        nombre = escape(str(u.get("name") or ""))
+        html = (
+            f'<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">'
+            f'<div style="background:#0033a0;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0;font-size:16px;font-weight:700">'
+            f'Recordatorio diario de rutas</div>'
+            f'<div style="border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;padding:20px;color:#374151;font-size:14px">'
+            f'<p>Hola {nombre},</p>'
+            f'<p>Te recordamos <b>registrar la ruta que recorriste hoy</b> (kilometraje de salida y regreso, origen, destino y combustible) en el sistema de Control de Flota.</p>'
+            f'{boton}'
+            f'<p style="color:#9CA3AF;font-size:12px;margin-top:16px">Mensaje automático de Control de Flota · Indurama.</p>'
+            f'</div></div>'
+        )
+        try:
+            await _send_email(to=to, subject="Recordatorio: registra tu ruta de hoy", html=html)
+            sent += 1
+        except Exception as e:
+            logging.info(f"[route-reminder] email skip {to}: {e}")
+    logging.info(f"[route-reminder] enviados {sent} correos")
+
+
+@api.post("/cron/route-reminder")
+async def cron_route_reminder(background_tasks: BackgroundTasks, authorization: Optional[str] = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    import hmac
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:]
+    if not WEBHOOK_CRON_SECRET or not hmac.compare_digest(token, WEBHOOK_CRON_SECRET):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    background_tasks.add_task(_send_route_reminders)
+    return response_structure(data={"queued": True}, message="Recordatorio de rutas encolado")
+
+
 
 
 

@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Search, FlaskConical, Ban, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import BulkUploadDialog from "@/components/BulkUploadDialog";
 
 const empty = { marca: "", modelo: "", serie: "", descripcion: "", fecha_compra: "", valor: "" };
 
@@ -114,6 +115,15 @@ export default function HerramientasPage() {
             <Button onClick={seedTest} disabled={seeding} variant="outline" className="gap-2" data-testid="seed-test-btn">
               <FlaskConical className="w-4 h-4" /> {seeding ? "Generando…" : "Datos de prueba"}
             </Button>
+          )}
+          {user?.role === "admin" && (
+            <BulkUploadDialog
+              templateUrl="/tools/tools/template"
+              importUrl="/tools/tools/bulk-import"
+              title="Carga masiva de herramientas"
+              templateName="plantilla_herramientas.xlsx"
+              onDone={load}
+            />
           )}
           <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tool-btn">
             <Plus className="w-4 h-4" /> Agregar
