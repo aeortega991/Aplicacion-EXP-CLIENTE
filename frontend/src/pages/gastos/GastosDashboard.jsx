@@ -23,7 +23,7 @@ const KPI = ({ icon: Icon, label, value, sub, color }) => (
   </Card>
 );
 
-const PIE_COLORS = ["#D92D20", "#F59E0B", "#3B82F6", "#6366F1", "#A855F7", "#F97316", "#10B981", "#EF4444", "#0EA5E9", "#84CC16"];
+const PIE_COLORS = ["#0033a0", "#F59E0B", "#3B82F6", "#6366F1", "#A855F7", "#F97316", "#10B981", "#EF4444", "#0EA5E9", "#84CC16"];
 
 export default function GastosDashboard() {
   const { user } = useAuth();
@@ -96,7 +96,7 @@ export default function GastosDashboard() {
                 <XAxis dataKey="categoria" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" height={90} interval={0} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
                 <Tooltip formatter={(v) => money(v)} />
-                <Bar dataKey="monto" name="Monto" fill="#D92D20" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="monto" name="Monto" fill="#0033a0" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

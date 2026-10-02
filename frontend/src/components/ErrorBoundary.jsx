@@ -24,7 +24,6 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     // El detalle tecnico va a monitoreo/consola, nunca a la pantalla del usuario (C.18).
-    // eslint-disable-next-line no-console
     console.error("[ErrorBoundary]", error, info?.componentStack);
   }
 

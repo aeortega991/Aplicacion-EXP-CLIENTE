@@ -84,7 +84,7 @@ export default function Hub() {
             title="Gastos"
             subtitle="Solicitudes de gasto con flujo de aprobación: coordinador, presupuesto (tesorero), factura y doble aprobación de gerencia."
             tag="Aprobaciones"
-            gradient="bg-gradient-to-br from-amber-600 to-amber-800"
+            gradient="bg-gradient-to-br from-[#29abe2] to-[#0033a0]"
             testId="hub-gastos-card"
           />
         </div>

@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
 import re
@@ -919,7 +919,7 @@ async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.5*inch, rightMargin=0.5*inch)
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="H1red", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=6))
+    styles.add(ParagraphStyle(name="H1red", parent=styles["Heading1"], textColor=colors.HexColor("#0033A0"), spaceAfter=6))
     styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
     styles.add(ParagraphStyle(name="small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
 
@@ -963,7 +963,7 @@ async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)
     ]
     tt = Table(tot, colWidths=[3*inch, 2*inch])
     tt.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#D92D20")),
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#0033A0")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.white),
         ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
         ("FONTSIZE", (0,0), (-1,-1), 9),
@@ -1069,7 +1069,7 @@ async def send_mnto_emails(user: dict = Depends(require_admin)):
         html = (
             '<table role="presentation" width="100%" style="max-width:560px;margin:0 auto;'
             'font-family:Arial,sans-serif;background:#ffffff">'
-            '<tr><td style="padding:24px;border-bottom:3px solid #D92D20">'
+            '<tr><td style="padding:24px;border-bottom:3px solid #0033A0">'
             f'<h2 style="margin:0;color:#111827;font-size:20px">Aviso de Mantenimiento Vencido</h2>'
             f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p>'
             '</td></tr>'
@@ -1082,7 +1082,7 @@ async def send_mnto_emails(user: dict = Depends(require_admin)):
             f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Vehículo</td>'
             f'<td style="padding:8px">{escape(marca_modelo)}</td></tr>'
             f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Km de atraso</td>'
-            f'<td style="padding:8px;font-family:monospace;color:#D92D20"><strong>{km_atraso:,} Km</strong></td></tr>'
+            f'<td style="padding:8px;font-family:monospace;color:#0033A0"><strong>{km_atraso:,} Km</strong></td></tr>'
             f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Odómetro actual</td>'
             f'<td style="padding:8px;font-family:monospace">{_num(f.get("Kms Odómetro Actual")):,.0f} Km</td></tr>'
             '</table>'
@@ -1148,7 +1148,7 @@ async def _notify_multa_sin_pago(multa: dict) -> Optional[str]:
         f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Importe</td>'
         f'<td style="padding:8px;font-family:monospace"><strong>${importe:,.2f}</strong></td></tr>'
         f'<tr><td style="padding:8px;background:#F3F4F6;font-weight:bold">Saldo por pagar</td>'
-        f'<td style="padding:8px;font-family:monospace;color:#D92D20"><strong>${debe:,.2f}</strong></td></tr>'
+        f'<td style="padding:8px;font-family:monospace;color:#0033A0"><strong>${debe:,.2f}</strong></td></tr>'
         '</table>'
         '<p>Por favor coordina el pago y registra la fecha en el sistema.</p>'
         '</td></tr>'
@@ -1464,7 +1464,7 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#0033A0"), spaceAfter=4))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
     styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
 
@@ -1542,7 +1542,7 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.white),
         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#D92D20")),
+        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#0033A0")),
         ("TEXTCOLOR", (-2,-1), (-1,-1), colors.white),
         ("FONTNAME", (-2,-1), (-1,-1), "Helvetica-Bold"),
         ("FONTSIZE", (0,0), (-1,-1), 9),
@@ -1673,7 +1673,7 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
 
     html = (
         '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
-        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #D92D20">'
+        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #0033A0">'
         f'<h2 style="margin:0;color:#111827">{"Acta de entrega a bodega" if dest == "warehouse" else "Acta de entrega de herramientas"}</h2>'
         f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
         '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
@@ -1684,8 +1684,8 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
         '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th>'
         '<th style="padding:6px 8px;text-align:left">Serie</th><th style="padding:6px 8px;text-align:right">Valor</th></tr></thead>'
         f'<tbody>{tool_rows_html}'
-        f'<tr><td colspan="3" style="padding:8px;text-align:right;background:#D92D20;color:white;font-weight:bold">TOTAL</td>'
-        f'<td style="padding:8px;text-align:right;background:#D92D20;color:white;font-weight:bold;font-family:monospace">${total:,.2f}</td></tr>'
+        f'<tr><td colspan="3" style="padding:8px;text-align:right;background:#0033A0;color:white;font-weight:bold">TOTAL</td>'
+        f'<td style="padding:8px;text-align:right;background:#0033A0;color:white;font-weight:bold;font-family:monospace">${total:,.2f}</td></tr>'
         '</tbody></table>'
         f'<p style="margin-top:12px;color:#6B7280;font-size:12px">Se adjunta el acta oficial en PDF (descargable desde el sistema).</p>'
         '</td></tr>'
@@ -2315,7 +2315,7 @@ def _build_inventory_pdf(warehouse: dict, tools_at_wh: list, generated_by: str) 
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#0033A0"), spaceAfter=4))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
     styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=14, spaceAfter=4, fontSize=12))
 
@@ -2347,7 +2347,7 @@ def _build_inventory_pdf(warehouse: dict, tools_at_wh: list, generated_by: str) 
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#111827")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.white),
         ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#D92D20")),
+        ("BACKGROUND", (-2,-1), (-1,-1), colors.HexColor("#0033A0")),
         ("TEXTCOLOR", (-2,-1), (-1,-1), colors.white),
         ("FONTNAME", (-2,-1), (-1,-1), "Helvetica-Bold"),
         ("FONTSIZE", (0,0), (-1,-1), 8.5),
@@ -2431,7 +2431,7 @@ async def technician_history_pdf(technician_id: str, user: dict = Depends(get_cu
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.6*inch, rightMargin=0.6*inch)
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#D92D20"), spaceAfter=4))
+    styles.add(ParagraphStyle(name="Hred", parent=styles["Heading1"], textColor=colors.HexColor("#0033A0"), spaceAfter=4))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
     styles.add(ParagraphStyle(name="H2s", parent=styles["Heading2"], textColor=colors.HexColor("#111827"), spaceBefore=12, spaceAfter=4, fontSize=12))
 
@@ -2745,7 +2745,7 @@ def _expense_email_html(exp: dict, titulo: str, mensaje: str, pdf_link: Optional
     if pdf_link:
         boton = (
             f'<tr><td colspan="2" style="padding:18px 10px 4px"><a href="{escape(pdf_link)}" '
-            f'style="display:inline-block;background:#D92D20;color:#fff;text-decoration:none;'
+            f'style="display:inline-block;background:#0033A0;color:#fff;text-decoration:none;'
             f'padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600">Descargar PDF de la solicitud</a>'
             f'<div style="color:#9CA3AF;font-size:11px;margin-top:6px">El enlace es válido por 14 días.</div></td></tr>'
         )
@@ -3360,7 +3360,7 @@ def _build_expense_pdf(exp: dict):
     styles = getSampleStyleSheet()
     h = ParagraphStyle("h", parent=styles["Title"], fontSize=16, textColor=colors.HexColor("#111827"))
     sub = ParagraphStyle("sub", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6B7280"))
-    sec = ParagraphStyle("sec", parent=styles["Heading2"], fontSize=11, textColor=colors.HexColor("#D92D20"), spaceBefore=12, spaceAfter=4)
+    sec = ParagraphStyle("sec", parent=styles["Heading2"], fontSize=11, textColor=colors.HexColor("#0033A0"), spaceBefore=12, spaceAfter=4)
     el = []
     el.append(Paragraph(f"Solicitud de Gasto {exp.get('numero')}", h))
     el.append(Paragraph(f"Estado actual: {ESTADO_LABELS.get(exp.get('estado'), exp.get('estado'))} · Generado {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", sub))

@@ -81,7 +81,7 @@ export default function ToolsDashboard() {
                 <Tooltip formatter={(v) => money(v)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Bar dataKey="activa" name="Activas" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="inactiva" name="Inactivas" stackId="a" fill="#D92D20" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="inactiva" name="Inactivas" stackId="a" fill="#0033a0" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -96,7 +96,7 @@ export default function ToolsDashboard() {
             <PieChart>
               <Pie data={pieData} dataKey="value" innerRadius={55} outerRadius={90} paddingAngle={2}>
                 <Cell fill="#10B981" />
-                <Cell fill="#D92D20" />
+                <Cell fill="#0033a0" />
               </Pie>
               <Tooltip formatter={(v) => money(v)} />
               <Legend wrapperStyle={{ fontSize: 11 }} />

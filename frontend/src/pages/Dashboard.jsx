@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { Truck, DollarSign, Users, Gauge, Wrench, AlertTriangle, Fuel, Calendar, MapPin } from "lucide-react";
 
-const COLORS = ["#D92D20", "#2563EB", "#10B981", "#F59E0B", "#7C3AED", "#EC4899", "#0EA5E9", "#84CC16"];
+const COLORS = ["#0033a0", "#2563EB", "#10B981", "#F59E0B", "#7C3AED", "#EC4899", "#0EA5E9", "#84CC16"];
 
 const KPI = ({ icon: Icon, label, value, sub, testId }) => (
   <Card className="p-5 border border-neutral-200 shadow-none" data-testid={testId}>
@@ -125,7 +125,7 @@ export default function Dashboard() {
               <XAxis dataKey="placa" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
               <Tooltip formatter={(v) => money(v)} />
-              <Bar dataKey="gasto" fill="#D92D20" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="gasto" fill="#0033a0" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
@@ -174,7 +174,7 @@ export default function Dashboard() {
               <Tooltip formatter={(v, name) => name === "Km recorridos" ? `${numberFmt(v)} km` : `${numberFmt(v)} km/gal`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar yAxisId="right" dataKey="km_recorridos" name="Km recorridos" fill="#93C5FD" radius={[4, 4, 0, 0]} />
-              <Line yAxisId="left" type="monotone" dataKey="km_por_galon" name="Rendimiento (km/gal)" stroke="#D92D20" strokeWidth={2.5} dot={{ r: 4 }} />
+              <Line yAxisId="left" type="monotone" dataKey="km_por_galon" name="Rendimiento (km/gal)" stroke="#0033a0" strokeWidth={2.5} dot={{ r: 4 }} />
             </ComposedChart>
           </ResponsiveContainer>
         )}

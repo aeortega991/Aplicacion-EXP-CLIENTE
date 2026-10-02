@@ -110,7 +110,7 @@ export default function RutasMap() {
                 <Polyline
                   key={idx}
                   positions={r.coords}
-                  color="#D92D20"
+                  color="#0033a0"
                   weight={w}
                   opacity={0.5}
                 >
