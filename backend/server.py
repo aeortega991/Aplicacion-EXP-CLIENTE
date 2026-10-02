@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+LOGO_PATH = str(ROOT_DIR / "assets" / "indurama-logo.jpg")
 
 import os
 import json
@@ -903,6 +904,43 @@ def _fmt_date(v):
     if "T" in s: s = s.split("T")[0]
     return s
 
+def _pdf_brand_header(title: str, subtitle: Optional[str] = None, content_width_in: float = 7.2):
+    """Encabezado de marca Indurama para los PDF: banda azul (#0033a0) con el logo y el titulo.
+    El fondo azul del logo coincide con la banda, integrandose de forma limpia.
+
+    @author Equipo de ingenieria
+    @since 2026-10-02
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Image, Table, TableStyle, Paragraph, Spacer
+
+    try:
+        logo = Image(LOGO_PATH, width=0.92 * inch, height=0.67 * inch)
+    except Exception:
+        logo = Paragraph('<b>indurama</b>', ParagraphStyle("lg", textColor=colors.white, fontSize=15))
+
+    tstyle = ParagraphStyle("pdfbh", textColor=colors.white, fontName="Helvetica-Bold", fontSize=16, leading=19)
+    sstyle = ParagraphStyle("pdfbhs", textColor=colors.HexColor("#AFC7E8"), fontSize=9, leading=12)
+    right = [Paragraph(escape(str(title)), tstyle)]
+    if subtitle:
+        right.append(Paragraph(escape(str(subtitle)), sstyle))
+    logo_w = 1.15 * inch
+    total_w = content_width_in * inch
+    tbl = Table([[logo, right]], colWidths=[logo_w, total_w - logo_w])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0033A0")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
+    return [tbl, Spacer(1, 14)]
+
+
+
 @api.get("/vehicles/{placa}/history/pdf")
 async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)):
     from reportlab.lib.pagesizes import letter
@@ -924,8 +962,7 @@ async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)
     styles.add(ParagraphStyle(name="small", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#6B7280")))
 
     story = []
-    story.append(Paragraph("Historial de Vehículo", styles["H1red"]))
-    story.append(Paragraph(f"Placa: <b>{escape(placa.upper())}</b> · Generado: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["small"]))
+    story.extend(_pdf_brand_header("Historial de Vehículo", f"Placa: {placa.upper()} · Generado: {datetime.now().strftime('%Y-%m-%d %H:%M')}", 7.5))
     story.append(Spacer(1, 12))
 
     ficha = [
@@ -2439,7 +2476,7 @@ async def technician_history_pdf(technician_id: str, user: dict = Depends(get_cu
     creator_name = (creator.get("name") if creator else None) or user.get("username")
 
     story = []
-    story.append(Paragraph("Historial de Herramientas por Técnico", styles["Hred"]))
+    story.extend(_pdf_brand_header("Historial de Herramientas por Técnico", content_width_in=7.3))
     story.append(Paragraph(
         f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(creator_name)}",
         styles["Small"],
@@ -3362,9 +3399,7 @@ def _build_expense_pdf(exp: dict):
     sub = ParagraphStyle("sub", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6B7280"))
     sec = ParagraphStyle("sec", parent=styles["Heading2"], fontSize=11, textColor=colors.HexColor("#0033A0"), spaceBefore=12, spaceAfter=4)
     el = []
-    el.append(Paragraph(f"Solicitud de Gasto {exp.get('numero')}", h))
-    el.append(Paragraph(f"Estado actual: {ESTADO_LABELS.get(exp.get('estado'), exp.get('estado'))} · Generado {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", sub))
-    el.append(Spacer(1, 10))
+    el.extend(_pdf_brand_header(f"Solicitud de Gasto {exp.get('numero')}", f"Estado: {ESTADO_LABELS.get(exp.get('estado'), exp.get('estado'))} · Generado {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", 7.3))
 
     def _money(v):
         try:

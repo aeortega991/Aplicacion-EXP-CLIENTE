@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Truck, Lock, User } from "lucide-react";
+import { Lock, User } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Login() {
@@ -36,12 +36,10 @@ export default function Login() {
       <div className="hidden lg:flex relative bg-neutral-900 text-white p-12 flex-col justify-between overflow-hidden">
         <div className="relative z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-red-600 flex items-center justify-center">
-              <Truck className="w-5 h-5" />
-            </div>
+            <img src="/indurama-logo.jpg" alt="Indurama" className="h-12 w-auto rounded-md" />
             <div>
               <div className="font-semibold tracking-tight text-lg">Control de Flota</div>
-              <div className="text-xs text-neutral-400">Enterprise Fleet Management</div>
+              <div className="text-xs text-neutral-400">by Indurama</div>
             </div>
           </div>
         </div>
@@ -74,9 +72,7 @@ export default function Login() {
       <div className="flex items-center justify-center p-6">
         <Card className="w-full max-w-md p-8 shadow-none border border-neutral-200">
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-md bg-red-600 flex items-center justify-center text-white">
-              <Truck className="w-5 h-5" />
-            </div>
+            <img src="/indurama-logo.jpg" alt="Indurama" className="h-10 w-auto rounded-md" />
             <div className="font-semibold text-lg">Control de Flota</div>
           </div>
 

@@ -34,12 +34,10 @@ export default function Hub() {
       <header className="border-b border-neutral-200 bg-white">
         <div className="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-red-600 flex items-center justify-center text-white">
-              <Truck className="w-4 h-4" />
-            </div>
+            <img src="/indurama-logo.jpg" alt="Indurama" className="h-9 w-auto rounded-md" />
             <div>
               <div className="text-sm font-bold tracking-tight leading-tight">Control de Flota</div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500">Enterprise Suite</div>
+              <div className="text-[10px] uppercase tracking-widest text-neutral-500">by Indurama</div>
             </div>
           </div>
           <div className="flex items-center gap-4">
