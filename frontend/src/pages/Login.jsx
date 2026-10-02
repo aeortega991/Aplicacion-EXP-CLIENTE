@@ -46,18 +46,11 @@ export default function Login() {
         </div>
         <div className="relative z-10 space-y-4 max-w-md">
           <h1 className="text-4xl font-bold tracking-tight leading-tight">
-            Gestiona tu flota con precisión operativa.
+            Sistema de gestión integral Experiencia al cliente
           </h1>
           <p className="text-neutral-400 text-sm">
-            Vehículos, seguros, impuestos, talleres, conductores, multas y mantenimiento — un solo lugar, control total.
+            Vehículos, herramientas, gastos.
           </p>
-          <div className="grid grid-cols-3 gap-3 pt-6 border-t border-neutral-800">
-            {["Flota", "Seguros", "Multas", "Impuestos", "Talleres", "Mnto"].map((s) => (
-              <div key={s} className="text-xs text-neutral-500 uppercase tracking-widest">
-                • {s}
-              </div>
-            ))}
-          </div>
         </div>
         <div
           className="absolute inset-0 opacity-[0.06] pointer-events-none"
