@@ -39,7 +39,7 @@ export default function Login() {
           <div className="flex items-center gap-3">
             <img src="/indurama-logo.jpg" alt="Indurama" className="h-12 w-auto rounded-md" />
             <div>
-              <div className="font-semibold tracking-tight text-lg">Control de Flota</div>
+              <div className="font-semibold tracking-tight text-lg">SGI Experiencia al cliente</div>
               <div className="text-xs text-neutral-400">by Indurama</div>
             </div>
           </div>
@@ -67,7 +67,7 @@ export default function Login() {
         <Card className="w-full max-w-md p-8 shadow-none border border-neutral-200">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <img src="/indurama-logo.jpg" alt="Indurama" className="h-10 w-auto rounded-md" />
-            <div className="font-semibold text-lg">Control de Flota</div>
+            <div className="font-semibold text-lg">SGI Experiencia al cliente</div>
           </div>
 
           <div className="mb-8">

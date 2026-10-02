@@ -36,7 +36,7 @@ export default function Hub() {
           <div className="flex items-center gap-3">
             <img src="/indurama-logo.jpg" alt="Indurama" className="h-9 w-auto rounded-md" />
             <div>
-              <div className="text-sm font-bold tracking-tight leading-tight">Control de Flota</div>
+              <div className="text-sm font-bold tracking-tight leading-tight">SGI Experiencia al cliente</div>
               <div className="text-[10px] uppercase tracking-widest text-neutral-500">by Indurama</div>
             </div>
           </div>

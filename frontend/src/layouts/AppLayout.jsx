@@ -51,7 +51,7 @@ export default function AppLayout() {
               <Truck className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-sm font-bold tracking-tight leading-tight">Control de Flota</div>
+              <div className="text-sm font-bold tracking-tight leading-tight">SGI Experiencia al cliente</div>
               <div className="text-[10px] uppercase tracking-widest text-neutral-500">Fleet Management</div>
             </div>
           </Link>
