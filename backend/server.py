@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, status, BackgroundTasks, Header, UploadFile, File
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
 import re
@@ -147,6 +147,123 @@ async def login(payload: LoginIn):
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+# ---- Microsoft Entra ID (Active Directory / Microsoft 365) SSO ----
+# Inicio de sesión corporativo con las cuentas de la organización (Outlook / M365).
+# Queda LISTO A NIVEL DE CÓDIGO: se activa automáticamente SOLO cuando las variables
+# de entorno ENTRA_* están configuradas. Si faltan, el SSO permanece desactivado y el
+# login por usuario/contraseña sigue funcionando sin cambios.
+ENTRA_TENANT_ID = os.environ.get("ENTRA_TENANT_ID", "").strip()
+ENTRA_CLIENT_ID = os.environ.get("ENTRA_CLIENT_ID", "").strip()
+ENTRA_CLIENT_SECRET = os.environ.get("ENTRA_CLIENT_SECRET", "").strip()
+ENTRA_REDIRECT_URI = os.environ.get("ENTRA_REDIRECT_URI", "").strip()
+ENTRA_POST_LOGIN_REDIRECT = os.environ.get("ENTRA_POST_LOGIN_REDIRECT", "").strip()
+ENTRA_AUTO_PROVISION = os.environ.get("ENTRA_AUTO_PROVISION", "false").strip().lower() == "true"
+ENTRA_DEFAULT_ROLE = (os.environ.get("ENTRA_DEFAULT_ROLE", "user").strip() or "user")
+ENTRA_SCOPES = ["openid", "profile", "email"]
+_oauth_idx_ready = False
+
+
+def _entra_enabled() -> bool:
+    return all([ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET, ENTRA_REDIRECT_URI])
+
+
+def _msal_app():
+    import msal
+    authority = f"https://login.microsoftonline.com/{ENTRA_TENANT_ID}"
+    return msal.ConfidentialClientApplication(
+        ENTRA_CLIENT_ID, authority=authority, client_credential=ENTRA_CLIENT_SECRET,
+    )
+
+
+def _frontend_base() -> str:
+    base = ENTRA_POST_LOGIN_REDIRECT or os.environ.get("APP_BASE_URL", "").strip() or ""
+    return base.rstrip("/")
+
+
+@api.get("/auth/microsoft/config")
+async def microsoft_sso_config():
+    """Indica si el SSO de Microsoft está configurado (NO expone secretos)."""
+    return {"enabled": _entra_enabled()}
+
+
+@api.get("/auth/microsoft/login")
+async def microsoft_sso_login():
+    """Inicia el flujo OAuth2 Authorization Code hacia Microsoft Entra ID."""
+    global _oauth_idx_ready
+    if not _entra_enabled():
+        raise HTTPException(status_code=404, detail="SSO de Microsoft no configurado")
+    if not _oauth_idx_ready:
+        try:
+            await db.oauth_states.create_index("expires_at", expireAfterSeconds=0)
+        except Exception:
+            pass
+        _oauth_idx_ready = True
+    flow = _msal_app().initiate_auth_code_flow(
+        scopes=ENTRA_SCOPES, redirect_uri=ENTRA_REDIRECT_URI, response_mode="query",
+    )
+    if "error" in flow:
+        raise HTTPException(status_code=502, detail=flow.get("error_description", "No se pudo iniciar el SSO"))
+    await db.oauth_states.update_one(
+        {"_id": flow["state"]},
+        {"$set": {"flow": flow, "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)}},
+        upsert=True,
+    )
+    return RedirectResponse(flow["auth_uri"])
+
+
+@api.get("/auth/microsoft/callback")
+async def microsoft_sso_callback(request: Request):
+    """Recibe el retorno de Microsoft, valida el token, vincula al usuario y
+    emite el JWT propio de la app. Redirige al frontend con el token en el fragmento."""
+    frontend = _frontend_base()
+    cb = f"{frontend}/sso/callback"
+    if not _entra_enabled():
+        return RedirectResponse(f"{frontend}/login")
+    params = dict(request.query_params)
+    state = params.get("state")
+    if not state:
+        return RedirectResponse(f"{cb}#error=estado_invalido")
+    saved = await db.oauth_states.find_one_and_delete({"_id": state})
+    if not saved:
+        return RedirectResponse(f"{cb}#error=estado_expirado")
+    try:
+        result = _msal_app().acquire_token_by_auth_code_flow(saved["flow"], params)
+    except ValueError:
+        return RedirectResponse(f"{cb}#error=respuesta_invalida")
+    if "error" in result or "id_token_claims" not in result:
+        return RedirectResponse(f"{cb}#error=autenticacion_fallida")
+    claims = result["id_token_claims"]
+    # Validaciones de seguridad: audiencia y tenant exactos (single-tenant).
+    if claims.get("aud") != ENTRA_CLIENT_ID or claims.get("tid") != ENTRA_TENANT_ID:
+        return RedirectResponse(f"{cb}#error=tenant_no_valido")
+    email = (claims.get("preferred_username") or claims.get("email") or "").strip().lower()
+    display_name = claims.get("name") or email
+    if not email:
+        return RedirectResponse(f"{cb}#error=sin_correo")
+    # Vincula por correo con un usuario existente (los roles se gestionan en la app).
+    user = await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    if not user and ENTRA_AUTO_PROVISION:
+        role = ENTRA_DEFAULT_ROLE if ENTRA_DEFAULT_ROLE in ALLOWED_ROLES else "user"
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": email,
+            "documento": email,
+            "name": display_name,
+            "email": email,
+            "role": role,
+            "ciudad": None,
+            "region": None,
+            "password_hash": hash_password(uuid.uuid4().hex),  # sin login por contraseña
+            "sso_provider": "entra",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.users.insert_one(dict(user))
+    if not user:
+        return RedirectResponse(f"{cb}#error=usuario_no_registrado")
+    token = create_token(user["id"], user["username"], user["role"])
+    return RedirectResponse(f"{cb}#token={token}", status_code=303)
+
 
 # ---- Users mgmt (admin) ----
 @api.get("/users")

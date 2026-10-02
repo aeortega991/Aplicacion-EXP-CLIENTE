@@ -37,13 +37,25 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithToken = async (token) => {
+    localStorage.setItem("fleet_token", token);
+    try {
+      const { data } = await api.get("/auth/me");
+      setUser(data);
+      return { ok: true };
+    } catch (e) {
+      localStorage.removeItem("fleet_token");
+      return { ok: false, error: formatApiError(e) };
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("fleet_token");
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isAdmin: user?.role === "admin" }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithToken, logout, isAdmin: user?.role === "admin" }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,6 +3,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
+import SsoCallback from "@/pages/SsoCallback";
 import Hub from "@/pages/Hub";
 import AppLayout from "@/layouts/AppLayout";
 import ToolsLayout from "@/layouts/ToolsLayout";
@@ -47,6 +48,7 @@ function App() {
         <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/sso/callback" element={<SsoCallback />} />
           <Route path="/" element={<Protected><Hub /></Protected>} />
           <Route path="/vehiculos" element={<Protected><AppLayout /></Protected>}>
             <Route index element={<Dashboard />} />

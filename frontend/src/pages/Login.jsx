@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Lock, User } from "lucide-react";
 import { toast } from "sonner";
+import MicrosoftSignInButton from "@/components/MicrosoftSignInButton";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -125,6 +126,8 @@ export default function Login() {
               {loading ? "Ingresando…" : "Ingresar"}
             </Button>
           </form>
+
+          <MicrosoftSignInButton />
 
           <div className="mt-8 pt-6 border-t border-neutral-200 text-xs text-neutral-500 space-y-1">
             <div className="font-semibold text-neutral-700">Credenciales de acceso:</div>
