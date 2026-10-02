@@ -36,6 +36,8 @@ const fmtCell = (val, key) => {
   return String(val);
 };
 
+const fmtFlotaId = (n) => (n === null || n === undefined || n === "") ? "—" : `VH-${String(n).padStart(4, "0")}`;
+
 const statusColor = (val) => {
   const v = String(val || "").toLowerCase();
   if (["activo", "vigente", "pagado", "disponible", "al día"].includes(v)) return "bg-emerald-100 text-emerald-800";
@@ -316,6 +318,8 @@ export default function ModulePage({ moduleKey }) {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor(val)}`}>
                             {String(val)}
                           </span>
+                        ) : (moduleKey === "flota" && c === "Nro") ? (
+                          <span className="font-mono font-medium">{fmtFlotaId(val)}</span>
                         ) : (
                           <span className={/\$|Importe|Costo|Impuesto|Debe|Pagado|Km|Odómetro|Año|Puntos|Galón|gal/i.test(c) ? "font-mono" : ""}>
                             {fmtCell(val, c)}
@@ -371,7 +375,7 @@ export default function ModulePage({ moduleKey }) {
                   {isDerived ? (
                     <Input id={f.key} value={value ?? ""} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
                   ) : isAuto ? (
-                    <Input id={f.key} value={formData[f.key] ?? ""} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
+                    <Input id={f.key} value={(moduleKey === "flota" && f.key === "Nro") ? fmtFlotaId(formData[f.key]) : (formData[f.key] ?? "")} readOnly className="bg-neutral-100 font-mono" data-testid={`${moduleKey}-field-${f.key}`} />
                   ) : f.type === "select" ? (
                     <Select
                       value={formData[f.key] ? String(formData[f.key]) : ""}

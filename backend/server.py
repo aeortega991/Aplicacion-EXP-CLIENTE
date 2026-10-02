@@ -423,6 +423,70 @@ def _validate_module(m: str) -> str:
         raise HTTPException(status_code=404, detail="Módulo no existe")
     return MODULES[m]
 
+
+async def _fleet_derived_metrics() -> Dict[str, Dict[str, Any]]:
+    """Por placa calcula: odómetro actual (de la última ruta ingresada, campo
+    'Km Regreso' = Kms Final), odómetro del último mantenimiento (cualquier tipo), y
+    km faltantes para el próximo preventivo (5000 km desde el último preventivo)."""
+    MNTO_INTERVALO_KM = 5000
+    mnto_all = await db.mantenimiento.find({}, {"_id": 0}).to_list(20000)
+    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(50000)
+
+    def _placa(x):
+        return str(x.get("Placa Vehiculo") or x.get("Placa Vehículo") or "").strip().upper()
+
+    def _ts(*vals):
+        for v in vals:
+            d = _parse_dt(v)
+            if d:
+                try:
+                    return d.timestamp()
+                except Exception:
+                    return 0.0
+        return 0.0
+
+    def _route_key(r):
+        return (_ts(r.get("Fecha de Llegada"), r.get("Fecha de Salida")), str(r.get("_created_at") or ""), _num(r.get("Kms Final (Odómetro)")))
+
+    def _mnto_key(m):
+        return (_ts(m.get("Fecha Salida"), m.get("Fecha Entrada")), str(m.get("_created_at") or ""), _num(m.get("Kilometraje del Odómetro")))
+
+    rutas_by: Dict[str, list] = {}
+    mnto_by: Dict[str, list] = {}
+    for r in rutas_all:
+        p = _placa(r)
+        if p:
+            rutas_by.setdefault(p, []).append(r)
+    for m in mnto_all:
+        p = _placa(m)
+        if p:
+            mnto_by.setdefault(p, []).append(m)
+
+    metrics: Dict[str, Dict[str, Any]] = {}
+    for p in set(rutas_by) | set(mnto_by):
+        actual = None
+        rutas_ok = [r for r in rutas_by.get(p, []) if _num(r.get("Kms Final (Odómetro)")) > 0]
+        if rutas_ok:
+            actual = _num(max(rutas_ok, key=_route_key).get("Kms Final (Odómetro)"))
+        ultimo_mnto = None
+        base_prev = None
+        mnto_ok = [m for m in mnto_by.get(p, []) if _num(m.get("Kilometraje del Odómetro")) > 0]
+        if mnto_ok:
+            ultimo_mnto = _num(max(mnto_ok, key=_mnto_key).get("Kilometraje del Odómetro"))
+            prevs = [m for m in mnto_ok if str(m.get("Tipo") or "").strip().lower() == "preventivo"]
+            if prevs:
+                base_prev = _num(max(prevs, key=_mnto_key).get("Kilometraje del Odómetro"))
+        falta = None
+        if base_prev is not None and actual is not None:
+            falta = max(0, int(round(base_prev + MNTO_INTERVALO_KM - actual)))
+        metrics[p] = {
+            "odom_actual": int(round(actual)) if actual is not None else None,
+            "odom_ultimo_mnto": int(round(ultimo_mnto)) if ultimo_mnto is not None else None,
+            "falta_prox": falta,
+        }
+    return metrics
+
+
 @api.get("/modules/{module}")
 async def list_records(module: str, ciudades: Optional[str] = None, user: dict = Depends(get_current_user)):
     if module == "tecnicos":
@@ -440,7 +504,18 @@ async def list_records(module: str, ciudades: Optional[str] = None, user: dict =
     col = _validate_module(module)
     docs = await db[col].find({}, {"_id": 0}).to_list(5000)
     cities = await _resolve_cities(module, user, ciudades)
-    return await _filter_by_cities(module, docs, cities)
+    result = await _filter_by_cities(module, docs, cities)
+    if module == "flota":
+        metrics = await _fleet_derived_metrics()
+        for d in result:
+            p = str(d.get("Placa Vehiculo") or "").strip().upper()
+            m = metrics.get(p) or {}
+            if m.get("odom_actual") is not None:
+                d["Kms Odómetro Actual"] = m["odom_actual"]
+            if m.get("odom_ultimo_mnto") is not None:
+                d["Kms Odómetro Mnnto. Preventivo"] = m["odom_ultimo_mnto"]
+            d["Falta para el próximo Mnnto Prev. (Km)"] = m.get("falta_prox")
+    return result
 
 @api.post("/modules/{module}")
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
