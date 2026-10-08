@@ -39,7 +39,6 @@ const ROLE_BADGE = {
 export default function UsersPage() {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState([]);
-  const [cities, setCities] = useState([]);
   const [regionMap, setRegionMap] = useState({});
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -54,18 +53,8 @@ export default function UsersPage() {
   };
   useEffect(() => {
     load();
-    Promise.all([
-      api.get("/cities").then((r) => r.data.cities || []).catch(() => []),
-      api.get("/expenses/meta").then((r) => r.data).catch(() => ({ cities: [], regions: {} })),
-    ]).then(([flotaCities, meta]) => {
-      setRegionMap(meta.regions || {});
-      const all = Array.from(new Set([...(flotaCities || []), ...((meta && meta.cities) || [])])).sort();
-      setCities(all);
-    });
+    api.get("/expenses/meta").then((r) => setRegionMap(r.data.regions || {})).catch(() => {});
   }, []);
-
-  // Ciudades disponibles según la región seleccionada
-  const ciudadOptions = form.region && regionMap[form.region] ? regionMap[form.region] : cities;
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
   const openEdit = (u) => { setEditing(u); setForm({ ...empty, ...u, password: "" }); setOpen(true); };
@@ -197,13 +186,7 @@ export default function UsersPage() {
               </div>
               <div className="space-y-2 col-span-2">
                 <Label>Ciudad {form.role === "admin" ? <span className="text-xs text-neutral-400">(opcional)</span> : null}{form.region ? <span className="text-xs text-neutral-400"> · región {form.region}</span> : null}</Label>
-                <Select value={form.ciudad || "__all__"} onValueChange={(v) => setForm((s) => ({ ...s, ciudad: v === "__all__" ? "" : v }))}>
-                  <SelectTrigger data-testid="user-ciudad-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value="__all__">— Sin restricción —</SelectItem>
-                    {ciudadOptions.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Input value={form.ciudad || ""} onChange={(e) => setForm((s) => ({ ...s, ciudad: e.target.value }))} placeholder="Escribe la ciudad (texto libre)" data-testid="user-ciudad-input" />
               </div>
             </div>
             <div className="space-y-2">
