@@ -44,6 +44,12 @@ const AdminOnly = ({ children }) => {
   return children;
 };
 
+const BlockTecnico = ({ children }) => {
+  const { user } = useAuth();
+  if (user?.role === "tecnico") return <Navigate to="/" replace />;
+  return children;
+};
+
 function App() {
   return (
     <ErrorBoundary>
@@ -64,7 +70,7 @@ function App() {
             ))}
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
-          <Route path="/herramientas" element={<Protected><ToolsLayout /></Protected>}>
+          <Route path="/herramientas" element={<Protected><BlockTecnico><ToolsLayout /></BlockTecnico></Protected>}>
             <Route index element={<ToolsDashboard />} />
             <Route path="inventario" element={<HerramientasPage />} />
             <Route path="asignaciones" element={<AsignacionesPage />} />

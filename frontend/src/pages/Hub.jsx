@@ -67,15 +67,17 @@ export default function Hub() {
             gradient="bg-gradient-to-br from-red-600 to-red-800"
             testId="hub-vehicles-card"
           />
-          <ModuleCard
-            to="/herramientas"
-            icon={Wrench}
-            title="Herramientas"
-            subtitle="Inventario de herramientas, técnicos, asignación, reportes actuales e históricos y baja de activos."
-            tag="6 opciones"
-            gradient="bg-gradient-to-br from-neutral-800 to-neutral-950"
-            testId="hub-tools-card"
-          />
+          {user?.role !== "tecnico" && (
+            <ModuleCard
+              to="/herramientas"
+              icon={Wrench}
+              title="Herramientas"
+              subtitle="Inventario de herramientas, técnicos, asignación, reportes actuales e históricos y baja de activos."
+              tag="6 opciones"
+              gradient="bg-gradient-to-br from-neutral-800 to-neutral-950"
+              testId="hub-tools-card"
+            />
+          )}
           <ModuleCard
             to="/gastos"
             icon={Receipt}
