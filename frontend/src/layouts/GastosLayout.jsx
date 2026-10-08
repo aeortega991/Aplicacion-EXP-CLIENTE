@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
-import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut, Users, Bell, BarChart3 } from "lucide-react";
+import { Receipt, LayoutDashboard, FileText, ArrowLeft, LogOut, Users, Bell, BarChart3, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -70,6 +70,9 @@ export default function GastosLayout() {
               <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-neutral-400">Administración</div>
               <NavLink to="/gastos/usuarios" className={navClass} data-testid="nav-gastos-usuarios">
                 <Users className="w-4 h-4" /> <span>Usuarios</span>
+              </NavLink>
+              <NavLink to="/gastos/cuentas" className={navClass} data-testid="nav-gastos-cuentas">
+                <Wallet className="w-4 h-4" /> <span>Cuentas contables</span>
               </NavLink>
             </>
           )}

@@ -27,6 +27,7 @@ import GastosDashboard from "@/pages/gastos/GastosDashboard";
 import SolicitudesPage from "@/pages/gastos/SolicitudesPage";
 import GastosAlertas from "@/pages/gastos/GastosAlertas";
 import GastosReportes from "@/pages/gastos/GastosReportes";
+import CuentasPage from "@/pages/gastos/CuentasPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -82,6 +83,7 @@ function App() {
             <Route path="solicitudes" element={<SolicitudesPage />} />
             <Route path="reportes" element={<GastosReportes />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
+            <Route path="cuentas" element={<AdminOnly><CuentasPage /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

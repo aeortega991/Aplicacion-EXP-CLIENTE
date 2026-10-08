@@ -3531,6 +3531,52 @@ async def expenses_meta(user: dict = Depends(get_current_user)):
     }
 
 
+class AccountIn(BaseModel):
+    nombre: str
+    codigo: str
+
+
+@api.get("/expense-accounts")
+async def list_expense_accounts(user: dict = Depends(require_admin)):
+    return await db.expense_accounts.find({}, {"_id": 0}).sort("nombre", 1).to_list(1000)
+
+
+@api.post("/expense-accounts")
+async def create_expense_account(payload: AccountIn, user: dict = Depends(require_admin)):
+    nombre = (payload.nombre or "").strip()
+    codigo = (payload.codigo or "").strip()
+    if not nombre or not codigo:
+        raise HTTPException(status_code=400, detail="La descripción y el código son obligatorios")
+    if await db.expense_accounts.find_one({"codigo": codigo}):
+        raise HTTPException(status_code=400, detail=f"Ya existe una cuenta con el código {codigo}")
+    doc = {"id": str(uuid.uuid4()), "nombre": nombre, "codigo": codigo}
+    await db.expense_accounts.insert_one(dict(doc))
+    return doc
+
+
+@api.patch("/expense-accounts/{account_id}")
+async def update_expense_account(account_id: str, payload: AccountIn, user: dict = Depends(require_admin)):
+    acc = await db.expense_accounts.find_one({"id": account_id})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    nombre = (payload.nombre or "").strip()
+    codigo = (payload.codigo or "").strip()
+    if not nombre or not codigo:
+        raise HTTPException(status_code=400, detail="La descripción y el código son obligatorios")
+    if await db.expense_accounts.find_one({"codigo": codigo, "id": {"$ne": account_id}}):
+        raise HTTPException(status_code=400, detail=f"Ya existe otra cuenta con el código {codigo}")
+    await db.expense_accounts.update_one({"id": account_id}, {"$set": {"nombre": nombre, "codigo": codigo}})
+    return {"id": account_id, "nombre": nombre, "codigo": codigo}
+
+
+@api.delete("/expense-accounts/{account_id}")
+async def delete_expense_account(account_id: str, user: dict = Depends(require_admin)):
+    res = await db.expense_accounts.delete_one({"id": account_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    return {"ok": True}
+
+
 @api.post("/expenses")
 async def create_expense(payload: ExpenseCreate, user: dict = Depends(get_current_user)):
     if user.get("role") not in ("lider", "admin", "user"):
