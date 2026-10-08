@@ -26,7 +26,7 @@ const ICONS = {
 };
 
 export default function AppLayout() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, can } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -61,26 +61,34 @@ export default function AppLayout() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <NavLink to="/vehiculos" end className={navClass} data-testid="nav-dashboard">
-            <LayoutDashboard className="w-4 h-4" />
-            <span>Dashboard</span>
-          </NavLink>
-          <NavLink to="/vehiculos/alertas" className={navClass} data-testid="nav-alertas">
-            <BellRing className="w-4 h-4" />
-            <span>Alertas</span>
-          </NavLink>
-          <NavLink to="/vehiculos/mapa" className={navClass} data-testid="nav-mapa">
-            <Map className="w-4 h-4" />
-            <span>Mapa de Rutas</span>
-          </NavLink>
-          <NavLink to="/vehiculos/historial" className={navClass} data-testid="nav-historial">
-            <Car className="w-4 h-4" />
-            <span>Historial Vehículo</span>
-          </NavLink>
+          {can("veh_dashboard") && (
+            <NavLink to="/vehiculos" end className={navClass} data-testid="nav-dashboard">
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Dashboard</span>
+            </NavLink>
+          )}
+          {can("veh_alertas") && (
+            <NavLink to="/vehiculos/alertas" className={navClass} data-testid="nav-alertas">
+              <BellRing className="w-4 h-4" />
+              <span>Alertas</span>
+            </NavLink>
+          )}
+          {can("veh_mapa") && (
+            <NavLink to="/vehiculos/mapa" className={navClass} data-testid="nav-mapa">
+              <Map className="w-4 h-4" />
+              <span>Mapa de Rutas</span>
+            </NavLink>
+          )}
+          {can("veh_historial") && (
+            <NavLink to="/vehiculos/historial" className={navClass} data-testid="nav-historial">
+              <Car className="w-4 h-4" />
+              <span>Historial Vehículo</span>
+            </NavLink>
+          )}
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">
             Módulos
           </div>
-          {MODULES.map((m) => {
+          {MODULES.filter((m) => can(`veh_${m.key}`) || can(`veh_${m.key}`, "edit")).map((m) => {
             const Icon = ICONS[m.icon] || Truck;
             return (
               <NavLink key={m.key} to={`/vehiculos/${m.key}`} className={navClass} data-testid={`nav-${m.key}`}>

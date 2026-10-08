@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 export default function GastosLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const doLogout = () => { logout(); navigate("/login"); };
   const [alertCount, setAlertCount] = useState(0);
@@ -48,23 +48,31 @@ export default function GastosLayout() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <NavLink to="/gastos" end className={navClass} data-testid="nav-gastos-home">
-            <LayoutDashboard className="w-4 h-4" /> <span>Dashboard</span>
-          </NavLink>
-          <NavLink to="/gastos/alertas" className={navClass} data-testid="nav-gastos-alertas">
-            <Bell className="w-4 h-4" /> <span className="flex-1">Alertas</span>
-            {alertCount > 0 && (
-              <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold" data-testid="alertas-badge">
-                {alertCount > 99 ? "99+" : alertCount}
-              </span>
-            )}
-          </NavLink>
-          <NavLink to="/gastos/solicitudes" className={navClass} data-testid="nav-gastos-solicitudes">
-            <FileText className="w-4 h-4" /> <span>Solicitudes</span>
-          </NavLink>
-          <NavLink to="/gastos/reportes" className={navClass} data-testid="nav-gastos-reportes">
-            <BarChart3 className="w-4 h-4" /> <span>Reportes</span>
-          </NavLink>
+          {can("gas_dashboard") && (
+            <NavLink to="/gastos" end className={navClass} data-testid="nav-gastos-home">
+              <LayoutDashboard className="w-4 h-4" /> <span>Dashboard</span>
+            </NavLink>
+          )}
+          {can("gas_alertas") && (
+            <NavLink to="/gastos/alertas" className={navClass} data-testid="nav-gastos-alertas">
+              <Bell className="w-4 h-4" /> <span className="flex-1">Alertas</span>
+              {alertCount > 0 && (
+                <span className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold" data-testid="alertas-badge">
+                  {alertCount > 99 ? "99+" : alertCount}
+                </span>
+              )}
+            </NavLink>
+          )}
+          {can("gas_solicitudes") && (
+            <NavLink to="/gastos/solicitudes" className={navClass} data-testid="nav-gastos-solicitudes">
+              <FileText className="w-4 h-4" /> <span>Solicitudes</span>
+            </NavLink>
+          )}
+          {can("gas_reportes") && (
+            <NavLink to="/gastos/reportes" className={navClass} data-testid="nav-gastos-reportes">
+              <BarChart3 className="w-4 h-4" /> <span>Reportes</span>
+            </NavLink>
+          )}
           {user?.role === "admin" && (
             <>
               <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-neutral-400">Administración</div>

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Truck, Wrench, LogOut, ArrowRight, Receipt } from "lucide-react";
+import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck } from "lucide-react";
 
 const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) => (
   <Link
@@ -28,7 +28,7 @@ const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) 
 );
 
 export default function Hub() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   return (
     <div className="min-h-screen bg-neutral-50" data-testid="hub-page">
       <header className="border-b border-neutral-200 bg-white">
@@ -58,16 +58,18 @@ export default function Hub() {
           <p className="text-neutral-500 mt-3 max-w-xl">Selecciona el área que necesitas gestionar. Puedes cambiar entre módulos en cualquier momento.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <ModuleCard
-            to="/vehiculos"
-            icon={Truck}
-            title="Vehículos"
-            subtitle="Flota, seguros, impuestos, talleres, conductores, rutas, multas, mantenimiento, alertas, mapa e historial vehicular."
-            tag="8 módulos"
-            gradient="bg-gradient-to-br from-red-600 to-red-800"
-            testId="hub-vehicles-card"
-          />
-          {user?.role !== "tecnico" && (
+          {can("vehiculos") && (
+            <ModuleCard
+              to="/vehiculos"
+              icon={Truck}
+              title="Vehículos"
+              subtitle="Flota, seguros, impuestos, talleres, conductores, rutas, multas, mantenimiento, alertas, mapa e historial vehicular."
+              tag="8 módulos"
+              gradient="bg-gradient-to-br from-red-600 to-red-800"
+              testId="hub-vehicles-card"
+            />
+          )}
+          {can("herramientas") && (
             <ModuleCard
               to="/herramientas"
               icon={Wrench}
@@ -78,15 +80,28 @@ export default function Hub() {
               testId="hub-tools-card"
             />
           )}
-          <ModuleCard
-            to="/gastos"
-            icon={Receipt}
-            title="Gastos"
-            subtitle="Solicitudes de gasto con flujo de aprobación: coordinador, presupuesto (tesorero), factura y doble aprobación de gerencia."
-            tag="Aprobaciones"
-            gradient="bg-gradient-to-br from-[#29abe2] to-[#0033a0]"
-            testId="hub-gastos-card"
-          />
+          {can("gastos") && (
+            <ModuleCard
+              to="/gastos"
+              icon={Receipt}
+              title="Gastos"
+              subtitle="Solicitudes de gasto con flujo de aprobación: coordinador, presupuesto (tesorero), factura y doble aprobación de gerencia."
+              tag="Aprobaciones"
+              gradient="bg-gradient-to-br from-[#29abe2] to-[#0033a0]"
+              testId="hub-gastos-card"
+            />
+          )}
+          {user?.role === "admin" && (
+            <ModuleCard
+              to="/permisos"
+              icon={ShieldCheck}
+              title="Permisos"
+              subtitle="Matriz de accesos: define qué módulos y secciones ve cada rol, y quién puede crear o editar."
+              tag="Administración"
+              gradient="bg-gradient-to-br from-[#0033a0] to-neutral-900"
+              testId="hub-permisos-card"
+            />
+          )}
         </div>
       </main>
     </div>

@@ -48,10 +48,13 @@ const statusColor = (val) => {
 
 export default function ModulePage({ moduleKey }) {
   const mod = getModule(moduleKey);
-  const { isAdmin, user } = useAuth();
-  const isTecnico = user?.role === "tecnico";
-  const canAdd = !isTecnico || moduleKey === "rutas";
-  const hideList = isTecnico && moduleKey === "rutas";
+  const { isAdmin, user, can } = useAuth();
+  const resKey = `veh_${moduleKey}`;
+  const canView = can(resKey, "view");
+  const canEdit = can(resKey, "edit");
+  const canAdd = canEdit;
+  const hideList = !canView && canEdit;
+  const noAccess = !canView && !canEdit;
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -218,6 +221,17 @@ export default function ModulePage({ moduleKey }) {
     return [];
   };
 
+  if (noAccess) {
+    return (
+      <div className="p-8" data-testid={`module-${moduleKey}-page`}>
+        <div className="bg-white border border-dashed border-neutral-300 rounded-md p-16 text-center">
+          <p className="text-neutral-700 font-medium">Sin acceso</p>
+          <p className="text-sm text-neutral-400 mt-1">No tienes permiso para ver este módulo.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8" data-testid={`module-${moduleKey}-page`}>
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -226,7 +240,7 @@ export default function ModulePage({ moduleKey }) {
           <h1 className="text-3xl font-bold tracking-tight">{mod.label}</h1>
           <p className="text-sm text-neutral-500 mt-1">
             {hideList ? (
-              "Como técnico, solo puedes ingresar nuevas rutas."
+              "Solo puedes ingresar nuevos registros en este módulo."
             ) : (
               <>
                 {records.length} {records.length === 1 ? "registro" : "registros"} en el sistema
@@ -355,7 +369,7 @@ export default function ModulePage({ moduleKey }) {
                   })}
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {isAdmin && (
+                      {canEdit && (
                         <>
                           <Button variant="ghost" size="sm" onClick={() => openEdit(r)} data-testid={`${moduleKey}-edit-btn`}>
                             <Pencil className="w-4 h-4" />

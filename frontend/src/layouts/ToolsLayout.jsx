@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 export default function ToolsLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const doLogout = () => { logout(); navigate("/login"); };
 
@@ -35,38 +35,58 @@ export default function ToolsLayout() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <NavLink to="/herramientas" end className={navClass} data-testid="nav-tools-home">
-            <LayoutDashboard className="w-4 h-4" /> <span>Inicio</span>
-          </NavLink>
-          <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Inventario</div>
-          <NavLink to="/herramientas/inventario" className={navClass} data-testid="nav-inventario">
-            <Wrench className="w-4 h-4" /> <span>Herramientas</span>
-          </NavLink>
-          <NavLink to="/herramientas/bodegas" className={navClass} data-testid="nav-bodegas">
-            <Warehouse className="w-4 h-4" /> <span>Bodegas</span>
-          </NavLink>
-          <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Operación</div>
-          <NavLink to="/herramientas/asignaciones" className={navClass} data-testid="nav-asignaciones">
-            <ClipboardCheck className="w-4 h-4" /> <span>Asignar</span>
-          </NavLink>
-          <NavLink to="/herramientas/devoluciones" className={navClass} data-testid="nav-devoluciones">
-            <RotateCcw className="w-4 h-4" /> <span>Devoluciones</span>
-          </NavLink>
-          <NavLink to="/herramientas/traspasos" className={navClass} data-testid="nav-traspasos">
-            <ArrowRightLeft className="w-4 h-4" /> <span>Traspasos</span>
-          </NavLink>
-          <NavLink to="/herramientas/reporte-actual" className={navClass} data-testid="nav-reporte-actual">
-            <FileBarChart className="w-4 h-4" /> <span>Reporte actual</span>
-          </NavLink>
-          <NavLink to="/herramientas/reporte-historico" className={navClass} data-testid="nav-reporte-historico">
-            <History className="w-4 h-4" /> <span>Histórico</span>
-          </NavLink>
-          <NavLink to="/herramientas/historial-tecnico" className={navClass} data-testid="nav-historial-tec">
-            <UserRound className="w-4 h-4" /> <span>Historial técnico</span>
-          </NavLink>
-          <NavLink to="/herramientas/bajas" className={navClass} data-testid="nav-bajas">
-            <Ban className="w-4 h-4" /> <span>Bajas</span>
-          </NavLink>
+          {can("her_dashboard") && (
+            <NavLink to="/herramientas" end className={navClass} data-testid="nav-tools-home">
+              <LayoutDashboard className="w-4 h-4" /> <span>Inicio</span>
+            </NavLink>
+          )}
+          {(can("her_inventario") || can("her_bodegas")) && <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Inventario</div>}
+          {can("her_inventario") && (
+            <NavLink to="/herramientas/inventario" className={navClass} data-testid="nav-inventario">
+              <Wrench className="w-4 h-4" /> <span>Herramientas</span>
+            </NavLink>
+          )}
+          {can("her_bodegas") && (
+            <NavLink to="/herramientas/bodegas" className={navClass} data-testid="nav-bodegas">
+              <Warehouse className="w-4 h-4" /> <span>Bodegas</span>
+            </NavLink>
+          )}
+          {(can("her_asignaciones") || can("her_devoluciones") || can("her_traspasos") || can("her_reporte_actual") || can("her_reporte_historico") || can("her_historial_tecnico") || can("her_bajas")) && <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Operación</div>}
+          {can("her_asignaciones") && (
+            <NavLink to="/herramientas/asignaciones" className={navClass} data-testid="nav-asignaciones">
+              <ClipboardCheck className="w-4 h-4" /> <span>Asignar</span>
+            </NavLink>
+          )}
+          {can("her_devoluciones") && (
+            <NavLink to="/herramientas/devoluciones" className={navClass} data-testid="nav-devoluciones">
+              <RotateCcw className="w-4 h-4" /> <span>Devoluciones</span>
+            </NavLink>
+          )}
+          {can("her_traspasos") && (
+            <NavLink to="/herramientas/traspasos" className={navClass} data-testid="nav-traspasos">
+              <ArrowRightLeft className="w-4 h-4" /> <span>Traspasos</span>
+            </NavLink>
+          )}
+          {can("her_reporte_actual") && (
+            <NavLink to="/herramientas/reporte-actual" className={navClass} data-testid="nav-reporte-actual">
+              <FileBarChart className="w-4 h-4" /> <span>Reporte actual</span>
+            </NavLink>
+          )}
+          {can("her_reporte_historico") && (
+            <NavLink to="/herramientas/reporte-historico" className={navClass} data-testid="nav-reporte-historico">
+              <History className="w-4 h-4" /> <span>Histórico</span>
+            </NavLink>
+          )}
+          {can("her_historial_tecnico") && (
+            <NavLink to="/herramientas/historial-tecnico" className={navClass} data-testid="nav-historial-tec">
+              <UserRound className="w-4 h-4" /> <span>Historial técnico</span>
+            </NavLink>
+          )}
+          {can("her_bajas") && (
+            <NavLink to="/herramientas/bajas" className={navClass} data-testid="nav-bajas">
+              <Ban className="w-4 h-4" /> <span>Bajas</span>
+            </NavLink>
+          )}
           {user?.role === "admin" && (
             <>
               <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">Administración</div>

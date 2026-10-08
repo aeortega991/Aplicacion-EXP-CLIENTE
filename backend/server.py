@@ -85,6 +85,86 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
         raise HTTPException(status_code=403, detail="Requiere rol administrador")
     return user
 
+
+# ---- Matriz de permisos por rol ----
+PERMISSION_RESOURCES = [
+    {"key": "vehiculos", "module": "Vehículos", "label": "Acceso al módulo", "editable": False},
+    {"key": "veh_dashboard", "module": "Vehículos", "label": "Dashboard", "editable": False},
+    {"key": "veh_alertas", "module": "Vehículos", "label": "Alertas", "editable": False},
+    {"key": "veh_mapa", "module": "Vehículos", "label": "Mapa de Rutas", "editable": False},
+    {"key": "veh_historial", "module": "Vehículos", "label": "Historial Vehículo", "editable": False},
+    {"key": "veh_flota", "module": "Vehículos", "label": "Flota", "editable": True},
+    {"key": "veh_seguros", "module": "Vehículos", "label": "Seguros", "editable": True},
+    {"key": "veh_impuestos", "module": "Vehículos", "label": "Impuestos", "editable": True},
+    {"key": "veh_talleres", "module": "Vehículos", "label": "Talleres", "editable": True},
+    {"key": "veh_rutas", "module": "Vehículos", "label": "Rutas", "editable": True},
+    {"key": "veh_multas", "module": "Vehículos", "label": "Multas", "editable": True},
+    {"key": "veh_mantenimiento", "module": "Vehículos", "label": "Mantenimiento", "editable": True},
+    {"key": "herramientas", "module": "Herramientas", "label": "Acceso al módulo", "editable": False},
+    {"key": "her_dashboard", "module": "Herramientas", "label": "Inicio", "editable": False},
+    {"key": "her_inventario", "module": "Herramientas", "label": "Herramientas (inventario)", "editable": False},
+    {"key": "her_bodegas", "module": "Herramientas", "label": "Bodegas", "editable": False},
+    {"key": "her_asignaciones", "module": "Herramientas", "label": "Asignar", "editable": False},
+    {"key": "her_devoluciones", "module": "Herramientas", "label": "Devoluciones", "editable": False},
+    {"key": "her_traspasos", "module": "Herramientas", "label": "Traspasos", "editable": False},
+    {"key": "her_reporte_actual", "module": "Herramientas", "label": "Reporte actual", "editable": False},
+    {"key": "her_reporte_historico", "module": "Herramientas", "label": "Histórico", "editable": False},
+    {"key": "her_historial_tecnico", "module": "Herramientas", "label": "Historial técnico", "editable": False},
+    {"key": "her_bajas", "module": "Herramientas", "label": "Bajas", "editable": False},
+    {"key": "gastos", "module": "Gastos", "label": "Acceso al módulo", "editable": False},
+    {"key": "gas_dashboard", "module": "Gastos", "label": "Dashboard", "editable": False},
+    {"key": "gas_alertas", "module": "Gastos", "label": "Alertas", "editable": False},
+    {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": False},
+    {"key": "gas_reportes", "module": "Gastos", "label": "Reportes", "editable": False},
+]
+MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico"]
+VEH_MODULE_RESOURCE = {
+    "flota": "veh_flota", "seguros": "veh_seguros", "impuestos": "veh_impuestos",
+    "talleres": "veh_talleres", "rutas": "veh_rutas", "multas": "veh_multas",
+    "mantenimiento": "veh_mantenimiento",
+}
+_EDITABLE_KEYS = {r["key"] for r in PERMISSION_RESOURCES if r["editable"]}
+_VALID_RES_KEYS = {r["key"] for r in PERMISSION_RESOURCES}
+
+
+def _default_perms_for_role(role: str) -> dict:
+    """Valores por defecto: ver=sí para todos; crear/editar=solo admin (false para el resto).
+    Técnico: sin Herramientas; en Vehículos solo lectura; solo registra Rutas (sin ver listado)."""
+    perms = {r["key"]: {"view": True, "edit": False} for r in PERMISSION_RESOURCES}
+    if role == "tecnico":
+        for r in PERMISSION_RESOURCES:
+            if r["module"] == "Herramientas":
+                perms[r["key"]] = {"view": False, "edit": False}
+        perms["veh_rutas"] = {"view": False, "edit": True}
+    return perms
+
+
+def _merge_stored(base: dict, stored: Optional[dict]) -> dict:
+    if stored and isinstance(stored.get("perms"), dict):
+        for k, v in stored["perms"].items():
+            if k in base:
+                base[k] = {"view": bool(v.get("view")), "edit": bool(v.get("edit")) and k in _EDITABLE_KEYS}
+    return base
+
+
+async def _effective_perms(user: dict) -> dict:
+    role = user.get("role")
+    if role == "admin":
+        return {r["key"]: {"view": True, "edit": r["editable"]} for r in PERMISSION_RESOURCES}
+    base = _default_perms_for_role(role)
+    stored = await db.role_permissions.find_one({"role": role}, {"_id": 0})
+    return _merge_stored(base, stored)
+
+
+async def _require_resource_edit(resource_key: str, user: dict):
+    """Autoriza crear/editar/eliminar en un recurso editable según la matriz (admin siempre)."""
+    if user.get("role") == "admin":
+        return
+    perms = await _effective_perms(user)
+    if not perms.get(resource_key, {}).get("edit"):
+        raise HTTPException(status_code=403, detail="No tienes permiso para crear o editar en este módulo")
+
+
 # ---- Models ----
 class LoginIn(BaseModel):
     username: str
@@ -147,6 +227,39 @@ async def login(payload: LoginIn):
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+class MatrixIn(BaseModel):
+    matrix: Dict[str, Dict[str, Dict[str, bool]]]
+
+
+@api.get("/permissions/matrix")
+async def get_permissions_matrix(user: dict = Depends(require_admin)):
+    matrix = {}
+    for role in MATRIX_ROLES:
+        base = _default_perms_for_role(role)
+        stored = await db.role_permissions.find_one({"role": role}, {"_id": 0})
+        matrix[role] = _merge_stored(base, stored)
+    return {"resources": PERMISSION_RESOURCES, "roles": MATRIX_ROLES, "matrix": matrix}
+
+
+@api.put("/permissions/matrix")
+async def save_permissions_matrix(payload: MatrixIn, user: dict = Depends(require_admin)):
+    for role, perms in payload.matrix.items():
+        if role not in MATRIX_ROLES or not isinstance(perms, dict):
+            continue
+        clean = {}
+        for k, v in perms.items():
+            if k not in _VALID_RES_KEYS:
+                continue
+            clean[k] = {"view": bool(v.get("view")), "edit": bool(v.get("edit")) and k in _EDITABLE_KEYS}
+        await db.role_permissions.update_one({"role": role}, {"$set": {"role": role, "perms": clean}}, upsert=True)
+    return {"ok": True}
+
+
+@api.get("/me/permissions")
+async def my_permissions(user: dict = Depends(get_current_user)):
+    return {"role": user.get("role"), "perms": await _effective_perms(user)}
 
 # ---- Microsoft Entra ID (Active Directory / Microsoft 365) SSO ----
 # Inicio de sesión corporativo con las cuentas de la organización (Outlook / M365).
@@ -608,9 +721,9 @@ async def list_records(module: str, ciudades: Optional[str] = None, user: dict =
 @api.post("/modules/{module}")
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
-    # El rol técnico solo puede registrar rutas; en el resto de módulos es de solo lectura
-    if user.get("role") == "tecnico" and module != "rutas":
-        raise HTTPException(status_code=403, detail="Como técnico solo puedes registrar rutas")
+    reskey = VEH_MODULE_RESOURCE.get(module)
+    if reskey:
+        await _require_resource_edit(reskey, user)
     data = dict(payload.data)
     # Auto-generate ascending Nro for mantenimiento/flota if not supplied
     if module in ("mantenimiento", "flota") and not data.get("Nro"):
@@ -637,8 +750,11 @@ async def create_record(module: str, payload: RecordIn, user: dict = Depends(get
     return doc
 
 @api.put("/modules/{module}/{record_id}")
-async def update_record(module: str, record_id: str, payload: RecordIn, user: dict = Depends(require_admin)):
+async def update_record(module: str, record_id: str, payload: RecordIn, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
+    reskey = VEH_MODULE_RESOURCE.get(module)
+    if reskey:
+        await _require_resource_edit(reskey, user)
     data = {k: v for k, v in payload.data.items() if k != "id"}
     data["_updated_by"] = user["username"]
     data["_updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -648,8 +764,11 @@ async def update_record(module: str, record_id: str, payload: RecordIn, user: di
     return {"ok": True}
 
 @api.delete("/modules/{module}/{record_id}")
-async def delete_record(module: str, record_id: str, user: dict = Depends(require_admin)):
+async def delete_record(module: str, record_id: str, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
+    reskey = VEH_MODULE_RESOURCE.get(module)
+    if reskey:
+        await _require_resource_edit(reskey, user)
     await db[col].delete_one({"id": record_id})
     return {"ok": True}
 

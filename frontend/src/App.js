@@ -28,6 +28,7 @@ import SolicitudesPage from "@/pages/gastos/SolicitudesPage";
 import GastosAlertas from "@/pages/gastos/GastosAlertas";
 import GastosReportes from "@/pages/gastos/GastosReportes";
 import CuentasPage from "@/pages/gastos/CuentasPage";
+import PermissionsPage from "@/pages/PermissionsPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -44,9 +45,10 @@ const AdminOnly = ({ children }) => {
   return children;
 };
 
-const BlockTecnico = ({ children }) => {
-  const { user } = useAuth();
-  if (user?.role === "tecnico") return <Navigate to="/" replace />;
+const RequireAccess = ({ resource, children }) => {
+  const { can, loading } = useAuth();
+  if (loading) return <div className="p-10 text-sm text-muted-foreground">Cargando…</div>;
+  if (!can(resource, "view")) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -59,7 +61,8 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/sso/callback" element={<SsoCallback />} />
           <Route path="/" element={<Protected><Hub /></Protected>} />
-          <Route path="/vehiculos" element={<Protected><AppLayout /></Protected>}>
+          <Route path="/permisos" element={<Protected><AdminOnly><PermissionsPage /></AdminOnly></Protected>} />
+          <Route path="/vehiculos" element={<Protected><RequireAccess resource="vehiculos"><AppLayout /></RequireAccess></Protected>}>
             <Route index element={<Dashboard />} />
             <Route path="alertas" element={<AlertsPage />} />
             <Route path="mapa" element={<RutasMap />} />
@@ -70,7 +73,7 @@ function App() {
             ))}
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
-          <Route path="/herramientas" element={<Protected><BlockTecnico><ToolsLayout /></BlockTecnico></Protected>}>
+          <Route path="/herramientas" element={<Protected><RequireAccess resource="herramientas"><ToolsLayout /></RequireAccess></Protected>}>
             <Route index element={<ToolsDashboard />} />
             <Route path="inventario" element={<HerramientasPage />} />
             <Route path="asignaciones" element={<AsignacionesPage />} />
@@ -83,7 +86,7 @@ function App() {
             <Route path="bajas" element={<BajasPage />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
           </Route>
-          <Route path="/gastos" element={<Protected><GastosLayout /></Protected>}>
+          <Route path="/gastos" element={<Protected><RequireAccess resource="gastos"><GastosLayout /></RequireAccess></Protected>}>
             <Route index element={<GastosDashboard />} />
             <Route path="alertas" element={<GastosAlertas />} />
             <Route path="solicitudes" element={<SolicitudesPage />} />
