@@ -608,6 +608,9 @@ async def list_records(module: str, ciudades: Optional[str] = None, user: dict =
 @api.post("/modules/{module}")
 async def create_record(module: str, payload: RecordIn, user: dict = Depends(get_current_user)):
     col = _validate_module(module)
+    # El rol técnico solo puede registrar rutas; en el resto de módulos es de solo lectura
+    if user.get("role") == "tecnico" and module != "rutas":
+        raise HTTPException(status_code=403, detail="Como técnico solo puedes registrar rutas")
     data = dict(payload.data)
     # Auto-generate ascending Nro for mantenimiento/flota if not supplied
     if module in ("mantenimiento", "flota") and not data.get("Nro"):

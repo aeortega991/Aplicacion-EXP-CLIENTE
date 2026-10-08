@@ -49,6 +49,9 @@ const statusColor = (val) => {
 export default function ModulePage({ moduleKey }) {
   const mod = getModule(moduleKey);
   const { isAdmin, user } = useAuth();
+  const isTecnico = user?.role === "tecnico";
+  const canAdd = !isTecnico || moduleKey === "rutas";
+  const hideList = isTecnico && moduleKey === "rutas";
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -222,21 +225,32 @@ export default function ModulePage({ moduleKey }) {
           <div className="text-xs uppercase tracking-widest text-neutral-500 mb-1">Módulo</div>
           <h1 className="text-3xl font-bold tracking-tight">{mod.label}</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            {records.length} {records.length === 1 ? "registro" : "registros"} en el sistema
-            {!isAdmin && user?.ciudad && <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-50 text-blue-800 rounded"><MapPin className="w-3 h-3" /> {user.ciudad}</span>}
+            {hideList ? (
+              "Como técnico, solo puedes ingresar nuevas rutas."
+            ) : (
+              <>
+                {records.length} {records.length === 1 ? "registro" : "registros"} en el sistema
+                {!isAdmin && user?.ciudad && <span className="ml-2 inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-50 text-blue-800 rounded"><MapPin className="w-3 h-3" /> {user.ciudad}</span>}
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap justify-end">
           {isAdmin && supportsCityFilter && (
             <CityFilter selected={cityFilter} onChange={setCityFilter} testId={`${moduleKey}-city-filter`} />
           )}
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-            <Input placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 w-64" data-testid={`${moduleKey}-search-input`} />
-          </div>
-          <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid={`${moduleKey}-add-button`}>
-            <Plus className="w-4 h-4" /> Agregar
-          </Button>
+          {!hideList && (
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+              <Input placeholder="Buscar…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 w-64" data-testid={`${moduleKey}-search-input`} />
+            </div>
+          )}
+          {canAdd && (
+            <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid={`${moduleKey}-add-button`}>
+              <Plus className="w-4 h-4" /> {moduleKey === "rutas" ? "Nueva ruta" : "Agregar"}
+            </Button>
+          )}
+          {!hideList && (
           <Button
             variant="outline"
             className="gap-2"
@@ -260,6 +274,7 @@ export default function ModulePage({ moduleKey }) {
           >
             <Download className="w-4 h-4" /> Excel
           </Button>
+          )}
           {isAdmin && moduleKey === "flota" && (
             <BulkUploadDialog
               templateUrl={`/modules/${moduleKey}/template`}
@@ -272,6 +287,16 @@ export default function ModulePage({ moduleKey }) {
         </div>
       </div>
 
+      {hideList ? (
+        <div className="bg-white border border-dashed border-neutral-300 rounded-md p-16 text-center" data-testid="tecnico-rutas-restricted">
+          <MapPin className="w-10 h-10 mx-auto text-neutral-300 mb-3" />
+          <p className="text-neutral-700 font-medium">Registro de rutas</p>
+          <p className="text-sm text-neutral-400 mt-1 max-w-md mx-auto">Como técnico no visualizas las rutas ya cargadas. Usa el botón para ingresar una nueva ruta.</p>
+          <Button onClick={openCreate} className="mt-5 bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="rutas-tecnico-add">
+            <Plus className="w-4 h-4" /> Nueva ruta
+          </Button>
+        </div>
+      ) : (
       <div className="bg-white border border-neutral-200 rounded-md overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
@@ -353,6 +378,7 @@ export default function ModulePage({ moduleKey }) {
           </div>
         )}
       </div>
+      )}
 
       <Dialog open={openForm} onOpenChange={setOpenForm}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" data-testid={`${moduleKey}-form-dialog`}>
