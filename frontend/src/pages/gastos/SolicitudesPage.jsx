@@ -186,14 +186,20 @@ export default function SolicitudesPage() {
             <DialogDescription>Registra el gasto y la cuenta contable afectada.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submit} className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 space-y-1">
-              <Label>Cuenta contable *</Label>
-              <Select value={form.cuenta_codigo} onValueChange={(v) => setForm((s) => ({ ...s, cuenta_codigo: v }))}>
-                <SelectTrigger data-testid="form-cuenta"><SelectValue placeholder="Seleccionar cuenta…" /></SelectTrigger>
-                <SelectContent className="max-h-64">
-                  {accounts.map((a) => <SelectItem key={a.codigo} value={a.codigo}>{a.nombre} ({a.codigo})</SelectItem>)}
-                </SelectContent>
-              </Select>
+            <div className="col-span-2 grid grid-cols-3 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label>Cuenta contable (descripción) *</Label>
+                <Select value={form.cuenta_codigo} onValueChange={(v) => setForm((s) => ({ ...s, cuenta_codigo: v }))}>
+                  <SelectTrigger data-testid="form-cuenta"><SelectValue placeholder="Seleccionar descripción…" /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {accounts.map((a) => <SelectItem key={a.codigo} value={a.codigo}>{a.nombre}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Código</Label>
+                <Input value={form.cuenta_codigo || ""} readOnly placeholder="—" className="bg-neutral-100 font-mono" data-testid="form-cuenta-codigo" />
+              </div>
             </div>
             <div className="space-y-1"><Label>Proveedor *</Label><Input value={form.proveedor} onChange={(e) => setForm((s) => ({ ...s, proveedor: e.target.value }))} data-testid="form-proveedor" /></div>
             <div className="space-y-1"><Label>Fecha *</Label><Input type="date" value={form.fecha} onChange={(e) => setForm((s) => ({ ...s, fecha: e.target.value }))} /></div>
