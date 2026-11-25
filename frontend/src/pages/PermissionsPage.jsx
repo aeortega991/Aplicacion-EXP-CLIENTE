@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 const ROLE_LABELS = {
   user: "Usuario", coordinador: "Coordinador", lider: "Líder",
-  tesorero: "Tesorero", gerente: "Gerente", tecnico: "Técnico",
+  tesorero: "Tesorero", gerente: "Gerente", tecnico: "Técnico", analista_tecnico: "Analista Técnico",
 };
 
 export default function PermissionsPage() {

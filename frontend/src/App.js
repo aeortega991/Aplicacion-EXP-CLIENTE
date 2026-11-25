@@ -29,6 +29,12 @@ import GastosAlertas from "@/pages/gastos/GastosAlertas";
 import GastosReportes from "@/pages/gastos/GastosReportes";
 import CuentasPage from "@/pages/gastos/CuentasPage";
 import PermissionsPage from "@/pages/PermissionsPage";
+import TicketsLayout from "@/layouts/TicketsLayout";
+import TicketsDashboard from "@/pages/tickets/TicketsDashboard";
+import TicketsBoard from "@/pages/tickets/TicketsBoard";
+import TicketsList from "@/pages/tickets/TicketsList";
+import TicketDetail from "@/pages/tickets/TicketDetail";
+import RegionesPage from "@/pages/tickets/RegionesPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -49,6 +55,13 @@ const RequireAccess = ({ resource, children }) => {
   const { can, loading } = useAuth();
   if (loading) return <div className="p-10 text-sm text-muted-foreground">Cargando…</div>;
   if (!can(resource, "view")) return <Navigate to="/" replace />;
+  return children;
+};
+
+const TS_ROLES = ["tecnico", "analista_tecnico", "admin"];
+const RequireTicketRole = ({ children }) => {
+  const { user } = useAuth();
+  if (!TS_ROLES.includes(user?.role)) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -93,6 +106,13 @@ function App() {
             <Route path="reportes" element={<GastosReportes />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="cuentas" element={<AdminOnly><CuentasPage /></AdminOnly>} />
+          </Route>
+          <Route path="/tickets" element={<Protected><RequireTicketRole><TicketsLayout /></RequireTicketRole></Protected>}>
+            <Route index element={<TicketsDashboard />} />
+            <Route path="tablero" element={<TicketsBoard />} />
+            <Route path="listado" element={<TicketsList />} />
+            <Route path="t/:id" element={<TicketDetail />} />
+            <Route path="regiones" element={<AdminOnly><RegionesPage /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

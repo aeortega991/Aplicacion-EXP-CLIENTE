@@ -117,7 +117,7 @@ PERMISSION_RESOURCES = [
     {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": True},
     {"key": "gas_reportes", "module": "Gastos", "label": "Reportes", "editable": False},
 ]
-MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico"]
+MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico", "analista_tecnico"]
 VEH_MODULE_RESOURCE = {
     "flota": "veh_flota", "seguros": "veh_seguros", "impuestos": "veh_impuestos",
     "talleres": "veh_talleres", "rutas": "veh_rutas", "multas": "veh_multas",
@@ -130,6 +130,8 @@ _VALID_RES_KEYS = {r["key"] for r in PERMISSION_RESOURCES}
 def _default_perms_for_role(role: str) -> dict:
     """Valores por defecto: ver=sí para todos; crear/editar=solo admin (false para el resto).
     Técnico: sin Herramientas; en Vehículos solo lectura; solo registra Rutas (sin ver listado)."""
+    if role == "analista_tecnico":
+        return {r["key"]: {"view": False, "edit": False} for r in PERMISSION_RESOURCES}
     perms = {r["key"]: {"view": True, "edit": r["editable"] and r["module"] in ("Herramientas", "Gastos")} for r in PERMISSION_RESOURCES}
     if role == "tecnico":
         for r in PERMISSION_RESOURCES:
@@ -170,7 +172,7 @@ class LoginIn(BaseModel):
     username: str
     password: str
 
-ALLOWED_ROLES = ("admin", "user", "coordinador", "lider", "tesorero", "gerente", "tecnico")
+ALLOWED_ROLES = ("admin", "user", "coordinador", "lider", "tesorero", "gerente", "tecnico", "analista_tecnico")
 
 class UserCreate(BaseModel):
     username: Optional[str] = None
@@ -4417,6 +4419,11 @@ async def cron_route_reminder(background_tasks: BackgroundTasks, authorization: 
 
 
 app.include_router(api)
+
+from service_tickets import create_ticket_router  # noqa: E402
+_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, REGION_CITIES)
+app.include_router(_ts_router)
+app.add_event_handler("startup", _ts_startup)
 
 app.add_middleware(
     CORSMiddleware,

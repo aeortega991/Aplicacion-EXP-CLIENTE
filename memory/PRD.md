@@ -84,3 +84,14 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - P2: Alertas de vencimientos (seguros, matrículas, mnto preventivo)
 - P2: Módulo Rutas (existente en Excel, no incluido en MVP)
 - P2: Dashboard con filtro por rango de fechas
+
+## Módulo Ticket servicio (2026-11-25)
+- Backend: `/app/backend/service_tickets.py` (router `/api/ts/*`, registrado al final de server.py). Rol nuevo `analista_tecnico` (sin acceso a otros módulos por defecto, ajustable en Matriz).
+- Colecciones: `ts_regions` (nombre, ciudades[], analista_id — sembradas desde REGION_CITIES R1/R2), `service_tickets` (TS-####), `ts_media` (Emergent Object Storage, solo metadatos en Mongo), `ts_messages`, `ts_status_history`. Índices en startup, migración no destructiva.
+- Asignación automática: ciudad técnico → región → analista responsable; si no hay, queda "Creado" y admin ve aviso + asigna manualmente.
+- Estados: Creado, Asignado, Info cargada, Bloqueado, Cerrado (selector en detalle; sin drag&drop). closed_at al cerrar; chat bloqueado si Cerrado. Chat con polling 15 s.
+- Frontend: `/tickets` (Dashboard, Tablero, Listado, detalle `t/:id`, admin `regiones`). Archivos en `src/pages/tickets/*`, `src/layouts/TicketsLayout.jsx`.
+- Env: `EMERGENT_LLM_KEY`, `TICKET_MEDIA_MAX_MB=25`.
+- Prueba: `python /app/backend/tests/ts_smoke.py` (40/40 PASS, crea y limpia sus datos).
+- Backlog: notificaciones (excluidas por alcance), SLA/priorización (excluidas).
+

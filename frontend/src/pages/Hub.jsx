@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck } from "lucide-react";
+import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck, Ticket } from "lucide-react";
 
 const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) => (
   <Link
@@ -89,6 +89,17 @@ export default function Hub() {
               tag="Aprobaciones"
               gradient="bg-gradient-to-br from-[#29abe2] to-[#0033a0]"
               testId="hub-gastos-card"
+            />
+          )}
+          {["tecnico", "analista_tecnico", "admin"].includes(user?.role) && (
+            <ModuleCard
+              to="/tickets"
+              icon={Ticket}
+              title="Ticket servicio"
+              subtitle="Solicitudes de asistencia técnica con asignación automática por región, respuesta del analista y chat de seguimiento."
+              tag="Asistencia"
+              gradient="bg-gradient-to-br from-[#0033a0] to-[#29abe2]"
+              testId="hub-tickets-card"
             />
           )}
           {user?.role === "admin" && (

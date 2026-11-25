@@ -23,6 +23,7 @@ const ROLE_OPTIONS = [
   { value: "tesorero", label: "Tesorero" },
   { value: "gerente", label: "Gerente" },
   { value: "tecnico", label: "Técnico" },
+  { value: "analista_tecnico", label: "Analista Técnico" },
   { value: "user", label: "Usuario" },
 ];
 const ROLE_LABELS = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
@@ -33,6 +34,7 @@ const ROLE_BADGE = {
   tesorero: "bg-amber-500 text-white",
   lider: "bg-indigo-500 text-white",
   tecnico: "bg-teal-600 text-white",
+  analista_tecnico: "bg-sky-700 text-white",
   user: "bg-neutral-200 text-neutral-800",
 };
 
