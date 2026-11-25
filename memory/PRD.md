@@ -94,4 +94,5 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Env: `EMERGENT_LLM_KEY`, `TICKET_MEDIA_MAX_MB=25`.
 - Prueba: `python /app/backend/tests/ts_smoke.py` (40/40 PASS, crea y limpia sus datos).
 - Backlog: notificaciones (excluidas por alcance), SLA/priorización (excluidas).
+- 2026-11-25: Formulario "Nuevo ticket" con botones Tomar foto / Grabar video (cámara trasera del teléfono) y Galería/archivo, con vista previa y quitar (`MediaPicker.jsx`).
 

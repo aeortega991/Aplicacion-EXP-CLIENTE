@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { MediaPicker } from "./MediaPicker";
 
 const EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov"];
 const empty = { modelo: "", serie: "", descripcion: "" };
@@ -74,9 +75,7 @@ export const NewTicketDialog = ({ open, onOpenChange, maxMb = 25, onCreated }) =
           </div>
           <div className="space-y-1.5">
             <Label>Multimedia * <span className="text-xs text-neutral-400">(foto o video corto, máx. {maxMb} MB)</span></Label>
-            <Input type="file" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,video/mp4,video/quicktime"
-              onChange={(e) => setFile(e.target.files?.[0] || null)} data-testid="ts-new-file" />
-            {file && <div className="text-xs text-neutral-500 truncate">{file.name} · {(file.size / 1048576).toFixed(1)} MB</div>}
+            <MediaPicker file={file} onChange={setFile} maxMb={maxMb} />
           </div>
           <div className="space-y-1.5">
             <Label>Descripción del daño *</Label>
