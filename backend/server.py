@@ -102,19 +102,19 @@ PERMISSION_RESOURCES = [
     {"key": "veh_mantenimiento", "module": "Vehículos", "label": "Mantenimiento", "editable": True},
     {"key": "herramientas", "module": "Herramientas", "label": "Acceso al módulo", "editable": False},
     {"key": "her_dashboard", "module": "Herramientas", "label": "Inicio", "editable": False},
-    {"key": "her_inventario", "module": "Herramientas", "label": "Herramientas (inventario)", "editable": False},
+    {"key": "her_inventario", "module": "Herramientas", "label": "Herramientas (inventario)", "editable": True},
     {"key": "her_bodegas", "module": "Herramientas", "label": "Bodegas", "editable": False},
-    {"key": "her_asignaciones", "module": "Herramientas", "label": "Asignar", "editable": False},
-    {"key": "her_devoluciones", "module": "Herramientas", "label": "Devoluciones", "editable": False},
-    {"key": "her_traspasos", "module": "Herramientas", "label": "Traspasos", "editable": False},
+    {"key": "her_asignaciones", "module": "Herramientas", "label": "Asignar", "editable": True},
+    {"key": "her_devoluciones", "module": "Herramientas", "label": "Devoluciones", "editable": True},
+    {"key": "her_traspasos", "module": "Herramientas", "label": "Traspasos", "editable": True},
     {"key": "her_reporte_actual", "module": "Herramientas", "label": "Reporte actual", "editable": False},
     {"key": "her_reporte_historico", "module": "Herramientas", "label": "Histórico", "editable": False},
     {"key": "her_historial_tecnico", "module": "Herramientas", "label": "Historial técnico", "editable": False},
-    {"key": "her_bajas", "module": "Herramientas", "label": "Bajas", "editable": False},
+    {"key": "her_bajas", "module": "Herramientas", "label": "Bajas", "editable": True},
     {"key": "gastos", "module": "Gastos", "label": "Acceso al módulo", "editable": False},
     {"key": "gas_dashboard", "module": "Gastos", "label": "Dashboard", "editable": False},
     {"key": "gas_alertas", "module": "Gastos", "label": "Alertas", "editable": False},
-    {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": False},
+    {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": True},
     {"key": "gas_reportes", "module": "Gastos", "label": "Reportes", "editable": False},
 ]
 MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico"]
@@ -130,7 +130,7 @@ _VALID_RES_KEYS = {r["key"] for r in PERMISSION_RESOURCES}
 def _default_perms_for_role(role: str) -> dict:
     """Valores por defecto: ver=sí para todos; crear/editar=solo admin (false para el resto).
     Técnico: sin Herramientas; en Vehículos solo lectura; solo registra Rutas (sin ver listado)."""
-    perms = {r["key"]: {"view": True, "edit": False} for r in PERMISSION_RESOURCES}
+    perms = {r["key"]: {"view": True, "edit": r["editable"] and r["module"] in ("Herramientas", "Gastos")} for r in PERMISSION_RESOURCES}
     if role == "tecnico":
         for r in PERMISSION_RESOURCES:
             if r["module"] == "Herramientas":
@@ -2007,6 +2007,7 @@ async def tools_template(user: dict = Depends(require_admin)):
 
 @api.post("/tools/tools/bulk-import")
 async def tools_bulk_import(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    await _require_resource_edit("her_inventario", user)
     """Carga masiva de herramientas desde Excel. Solo administradores."""
     import openpyxl
     from io import BytesIO
@@ -2074,6 +2075,7 @@ async def tools_bulk_import(file: UploadFile = File(...), user: dict = Depends(r
 
 @api.post("/tools/tools")
 async def create_tool(payload: ToolIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_inventario", user)
     doc = {
         "id": str(uuid.uuid4()),
         "tool_id": await _next_tool_code(),
@@ -2093,6 +2095,7 @@ async def create_tool(payload: ToolIn, user: dict = Depends(get_current_user)):
 
 @api.patch("/tools/tools/{tool_id}")
 async def update_tool(tool_id: str, payload: ToolUpdate, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_inventario", user)
     update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None or k in ("modelo","serie","descripcion","fecha_compra")}
     if "estado" in update and update["estado"] not in ("Activa", "Inactiva"):
         raise HTTPException(status_code=400, detail="Estado inválido")
@@ -2172,6 +2175,7 @@ async def _enrich_assignments(assignments: list) -> list:
 
 @api.post("/tools/assignments")
 async def create_assignment(payload: AssignmentIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_asignaciones", user)
     tool = await db.tools.find_one({"id": payload.tool_id}, {"_id": 0})
     if not tool:
         raise HTTPException(status_code=404, detail="Herramienta no encontrada")
@@ -2199,6 +2203,7 @@ async def create_assignment(payload: AssignmentIn, user: dict = Depends(get_curr
 
 @api.patch("/tools/assignments/{assignment_id}/return")
 async def return_assignment(assignment_id: str, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_devoluciones", user)
     today = datetime.now(timezone.utc).date().isoformat()
     res = await db.tool_assignments.update_one(
         {"id": assignment_id, "estado": "Vigente"},
@@ -2326,6 +2331,7 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
 
 @api.post("/tools/assignments/batch")
 async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_asignaciones", user)
     if not payload.tool_ids:
         raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
     dest = (payload.destination_type or "technician").lower()
@@ -2747,6 +2753,7 @@ def _build_return_pdf(technician: dict, warehouse: dict, tools_list: list, batch
 
 @api.post("/tools/returns")
 async def create_return_batch(payload: ReturnBatchIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_devoluciones", user)
     if not payload.assignment_ids:
         raise HTTPException(status_code=400, detail="Selecciona al menos una asignación a devolver")
     tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
@@ -2882,6 +2889,7 @@ async def get_return_pdf(batch_id: str, user: dict = Depends(get_current_user)):
 # ============================================================================
 @api.post("/tools/transfers")
 async def create_transfer(payload: TransferIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_traspasos", user)
     if not payload.tool_ids:
         raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
     if payload.from_warehouse_id == payload.to_warehouse_id:
@@ -3037,6 +3045,7 @@ async def get_transfer_pdf(batch_id: str, user: dict = Depends(get_current_user)
 # ============================================================================
 @api.post("/tools/tools/bulk-deactivate")
 async def bulk_deactivate_tools(payload: BulkDeactivateIn, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("her_bajas", user)
     if not payload.tool_ids:
         raise HTTPException(status_code=400, detail="Selecciona al menos una herramienta")
     action = (payload.action or "deactivate").lower()
@@ -3701,6 +3710,7 @@ async def delete_expense_account(account_id: str, user: dict = Depends(require_a
 
 @api.post("/expenses")
 async def create_expense(payload: ExpenseCreate, user: dict = Depends(get_current_user)):
+    await _require_resource_edit("gas_solicitudes", user)
     if user.get("role") not in ("lider", "admin", "user"):
         raise HTTPException(status_code=403, detail="Solo el usuario líder puede crear solicitudes")
     acc = await db.expense_accounts.find_one({"codigo": payload.cuenta_codigo}, {"_id": 0})

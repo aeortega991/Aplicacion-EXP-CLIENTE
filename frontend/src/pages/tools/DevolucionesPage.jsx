@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatApiError, money } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,7 @@ import { RotateCcw, Download, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 export default function DevolucionesPage() {
+  const { can } = useAuth();
   const [technicians, setTechnicians] = useState([]);
   const [cities, setCities] = useState([]);
   const [ciudadFilter, setCiudadFilter] = useState("__all__");
@@ -173,10 +175,12 @@ export default function DevolucionesPage() {
           )}
 
           <div className="flex items-center justify-end">
+            {can("her_devoluciones", "edit") && (
             <Button type="submit" disabled={submitting || !tech} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="return-batch-btn">
               <RotateCcw className="w-4 h-4" />
               {submitting ? "Procesando…" : `Devolver ${selected.length || ""} a bodega`}
             </Button>
+            )}
           </div>
         </form>
       </Card>

@@ -19,7 +19,7 @@ import ExpenseDetailDialog from "./ExpenseDetailDialog";
 const emptyForm = { cuenta_codigo: "", proveedor: "", fecha: new Date().toISOString().slice(0, 10), monto: "", necesita_presupuesto: false, url_cotizacion: "", descripcion: "", ciudad: "" };
 
 export default function SolicitudesPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [rows, setRows] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [cities, setCities] = useState([]);
@@ -35,7 +35,7 @@ export default function SolicitudesPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const canCreate = user?.role === "lider" || user?.role === "admin";
+  const canCreate = (user?.role === "lider" || user?.role === "admin") && can("gas_solicitudes", "edit");
 
   const load = () => api.get("/expenses").then((r) => setRows(r.data)).catch((e) => toast.error(formatApiError(e)));
   useEffect(() => {

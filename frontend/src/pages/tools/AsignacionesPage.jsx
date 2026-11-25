@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatApiError, money } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,7 @@ import { toast } from "sonner";
 import { ClipboardCheck, RotateCcw, Mail, Download, User, Warehouse } from "lucide-react";
 
 export default function AsignacionesPage() {
+  const { can } = useAuth();
   const [tools, setTools] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -253,10 +255,12 @@ export default function AsignacionesPage() {
           </div>
 
           <div className="flex items-center justify-end gap-3">
+            {can("her_asignaciones", "edit") && (
             <Button type="submit" disabled={submitting} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="assign-batch-btn">
               <ClipboardCheck className="w-4 h-4" />
               {submitting ? "Procesando…" : `Asignar ${selectedTools.length || ""} y enviar acta`}
             </Button>
+            )}
           </div>
         </form>
       </Card>

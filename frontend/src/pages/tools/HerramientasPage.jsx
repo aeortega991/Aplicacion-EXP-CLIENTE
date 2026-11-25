@@ -17,7 +17,7 @@ import BulkUploadDialog from "@/components/BulkUploadDialog";
 const empty = { marca: "", modelo: "", serie: "", descripcion: "", fecha_compra: "", valor: "" };
 
 export default function HerramientasPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -82,8 +82,8 @@ export default function HerramientasPage() {
   };
 
   const selectedRows = useMemo(() => rows.filter((r) => selected.includes(r.id)), [rows, selected]);
-  const canBulkDeactivate = selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Activa");
-  const canBulkReactivate = selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Inactiva");
+  const canBulkDeactivate = can("her_bajas", "edit") && selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Activa");
+  const canBulkReactivate = can("her_bajas", "edit") && selectedRows.length > 0 && selectedRows.every((r) => r.estado === "Inactiva");
 
   const runBulk = async () => {
     if (!bulkConfirm) return;
@@ -125,9 +125,11 @@ export default function HerramientasPage() {
               onDone={load}
             />
           )}
-          <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tool-btn">
-            <Plus className="w-4 h-4" /> Agregar
-          </Button>
+          {can("her_inventario", "edit") && (
+            <Button onClick={openCreate} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="add-tool-btn">
+              <Plus className="w-4 h-4" /> Agregar
+            </Button>
+          )}
         </div>
       </div>
 
@@ -193,7 +195,7 @@ export default function HerramientasPage() {
                   <Badge className={r.estado === "Activa" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}>{r.estado}</Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil className="w-4 h-4" /></Button>
+                  {can("her_inventario", "edit") && <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Pencil className="w-4 h-4" /></Button>}
                 </TableCell>
               </TableRow>
             ))}

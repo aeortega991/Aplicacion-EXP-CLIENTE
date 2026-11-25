@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { formatApiError, money } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import { ArrowRightLeft, Download, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 export default function TraspasosPage() {
+  const { can } = useAuth();
   const [warehouses, setWarehouses] = useState([]);
   const [cities, setCities] = useState([]);
   const [ciudadFrom, setCiudadFrom] = useState("__all__");
@@ -232,10 +234,12 @@ export default function TraspasosPage() {
           </div>
 
           <div className="flex items-center justify-end">
+            {can("her_traspasos", "edit") && (
             <Button type="submit" disabled={submitting || !fromId || !toId} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="trs-submit-btn">
               <ArrowRightLeft className="w-4 h-4" />
               {submitting ? "Procesando…" : `Trasladar ${selected.length || ""} y generar acta`}
             </Button>
+            )}
           </div>
         </form>
       </Card>
