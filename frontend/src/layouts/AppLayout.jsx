@@ -16,6 +16,9 @@ import {
   Car,
   Users,
   MapPinned,
+  Navigation,
+  CornerDownLeft,
+  Signpost,
   ArrowLeft,
   LogOut,
 } from "lucide-react";
@@ -89,7 +92,28 @@ export default function AppLayout() {
           <div className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-widest text-neutral-400">
             Módulos
           </div>
-          {MODULES.filter((m) => can(`veh_${m.key}`) || can(`veh_${m.key}`, "edit")).map((m) => {
+          {MODULES.filter((m) => m.key === "rutas" || can(`veh_${m.key}`) || can(`veh_${m.key}`, "edit")).map((m) => {
+            if (m.key === "rutas") {
+              return (
+                <div key="viajes" className="space-y-1">
+                  {(can("veh_rutas") || can("veh_rutas", "edit")) && (
+                    <NavLink to="/vehiculos/viaje-salida" className={navClass} data-testid="nav-viaje-salida">
+                      <Navigation className="w-4 h-4" /><span>Viaje salida</span>
+                    </NavLink>
+                  )}
+                  {can("veh_rutas", "edit") && (
+                    <NavLink to="/vehiculos/viaje-retorno" className={navClass} data-testid="nav-viaje-retorno">
+                      <CornerDownLeft className="w-4 h-4" /><span>Viaje retorno</span>
+                    </NavLink>
+                  )}
+                  {(can("veh_rutas_servicio") || can("veh_rutas_servicio", "edit")) && (
+                    <NavLink to="/vehiculos/rutas-servicio" className={navClass} data-testid="nav-rutas-servicio">
+                      <Signpost className="w-4 h-4" /><span>Rutas de servicio</span>
+                    </NavLink>
+                  )}
+                </div>
+              );
+            }
             const Icon = ICONS[m.icon] || Truck;
             return (
               <NavLink key={m.key} to={`/vehiculos/${m.key}`} className={navClass} data-testid={`nav-${m.key}`}>

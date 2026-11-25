@@ -72,6 +72,14 @@ class CityIn(BaseModel):
     region_id: Optional[str] = None
 
 
+class MergeIn(BaseModel):
+    target_id: str
+
+
+MERGE_TARGETS = (("users", "ciudad"), ("flota", "Ubicacion"), ("impuestos", "Ciudad"),
+                 ("tool_warehouses", "ciudad"), ("tool_technicians", "ciudad"), ("service_routes", "ciudad"))
+
+
 def create_catalog_router(db, get_current_user, require_admin):
     r = APIRouter(prefix="/api/catalog")
 
@@ -174,6 +182,25 @@ def create_catalog_router(db, get_current_user, require_admin):
         await _check_region(payload.region_id)
         await db.cities.update_one({"id": cid}, {"$set": {"nombre": nombre, "region_id": payload.region_id or None, "updated_at": _now()}})
         return await db.cities.find_one({"id": cid}, {"_id": 0})
+
+    @r.post("/cities/{cid}/merge")
+    async def merge_city(cid: str, payload: MergeIn, user: dict = Depends(require_admin)):
+        src = await db.cities.find_one({"id": cid}, {"_id": 0})
+        dst = await db.cities.find_one({"id": payload.target_id}, {"_id": 0})
+        if not src or not dst:
+            raise HTTPException(status_code=404, detail="Ciudad no encontrada")
+        if src["id"] == dst["id"]:
+            raise HTTPException(status_code=400, detail="Elige una ciudad distinta")
+        src_routes = await db.service_routes.distinct("ruta_norm", {"ciudad": src["nombre"]})
+        if src_routes and await db.service_routes.find_one({"ciudad": dst["nombre"], "ruta_norm": {"$in": src_routes}}):
+            raise HTTPException(status_code=400, detail="Ambas ciudades tienen rutas de servicio con el mismo nombre; ajústalas antes de unir")
+        moved = {}
+        for col, field in MERGE_TARGETS:
+            res = await db[col].update_many({field: src["nombre"]}, {"$set": {field: dst["nombre"]}})
+            if res.modified_count:
+                moved[col] = res.modified_count
+        await db.cities.delete_one({"id": cid})
+        return {"ok": True, "from": src["nombre"], "to": dst["nombre"], "moved": moved}
 
     @r.delete("/cities/{cid}")
     async def delete_city(cid: str, user: dict = Depends(require_admin)):

@@ -35,6 +35,9 @@ import TicketsBoard from "@/pages/tickets/TicketsBoard";
 import TicketsList from "@/pages/tickets/TicketsList";
 import TicketDetail from "@/pages/tickets/TicketDetail";
 import CiudadesPage from "@/pages/CiudadesPage";
+import ViajeSalidaPage from "@/pages/viajes/ViajeSalidaPage";
+import ViajeRetornoPage from "@/pages/viajes/ViajeRetornoPage";
+import RutasServicioPage from "@/pages/viajes/RutasServicioPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -82,8 +85,11 @@ function App() {
             <Route path="historial" element={<VehicleHistory />} />
             <Route path="historial/:placa" element={<VehicleHistory />} />
             {MODULES.map((m) => (
-              <Route key={m.key} path={m.key} element={<ModulePage moduleKey={m.key} />} />
+              <Route key={m.key} path={m.key} element={m.key === "rutas" ? <Navigate to="/vehiculos/viaje-salida" replace /> : <ModulePage moduleKey={m.key} />} />
             ))}
+            <Route path="viaje-salida" element={<ViajeSalidaPage />} />
+            <Route path="viaje-retorno" element={<ViajeRetornoPage />} />
+            <Route path="rutas-servicio" element={<RutasServicioPage />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>

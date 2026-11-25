@@ -85,6 +85,7 @@ export default function BulkUploadDialog({ templateUrl, importUrl, title = "Carg
                   {result.inserted > 0 ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-amber-600" />}
                   {result.inserted} de {result.total_filas} filas importadas
                 </div>
+                {result.duplicates > 0 && <div className="mt-1 text-xs text-amber-700" data-testid="bulk-duplicates">{result.duplicates} duplicado(s) omitido(s)</div>}
                 {result.errors && result.errors.length > 0 && (
                   <ul className="mt-2 list-disc list-inside text-xs text-red-600 max-h-28 overflow-y-auto">
                     {result.errors.slice(0, 10).map((er, i) => <li key={i}>{er}</li>)}

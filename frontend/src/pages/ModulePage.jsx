@@ -96,8 +96,8 @@ export default function ModulePage({ moduleKey }) {
     const sources = [...new Set(mod.fields.filter((f) => f.dynamicSource).map((f) => f.dynamicSource))];
     sources.forEach(async (src) => {
       try {
-        const { data } = await api.get(`/modules/${src}`);
-        setDynamicOptions((s) => ({ ...s, [src]: data }));
+        const { data } = await api.get(src === "ciudades" ? "/cities" : `/modules/${src}`);
+        setDynamicOptions((s) => ({ ...s, [src]: src === "ciudades" ? (data.cities || []).map((n) => ({ nombre: n })) : data }));
       } catch {}
     });
   }, [mod]);

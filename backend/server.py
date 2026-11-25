@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
+from trips import create_trips_router, DONE_TRIPS, PROTECTED_TRIP_KEYS
 from catalog import create_catalog_router, region_of_city as catalog_region_of_city, validate_location, catalog_lists
 
 # ---- DB ----
@@ -98,7 +99,8 @@ PERMISSION_RESOURCES = [
     {"key": "veh_seguros", "module": "Vehículos", "label": "Seguros", "editable": True},
     {"key": "veh_impuestos", "module": "Vehículos", "label": "Impuestos", "editable": True},
     {"key": "veh_talleres", "module": "Vehículos", "label": "Talleres", "editable": True},
-    {"key": "veh_rutas", "module": "Vehículos", "label": "Rutas", "editable": True},
+    {"key": "veh_rutas", "module": "Vehículos", "label": "Viajes (salida / retorno)", "editable": True},
+    {"key": "veh_rutas_servicio", "module": "Vehículos", "label": "Rutas de servicio", "editable": True},
     {"key": "veh_multas", "module": "Vehículos", "label": "Multas", "editable": True},
     {"key": "veh_mantenimiento", "module": "Vehículos", "label": "Mantenimiento", "editable": True},
     {"key": "herramientas", "module": "Herramientas", "label": "Acceso al módulo", "editable": False},
@@ -635,6 +637,15 @@ async def _filter_by_cities(module: str, docs: list, cities: Optional[set]) -> l
 
 
 
+async def _flota_city(data: dict):
+    """La ubicación del vehículo debe existir en el catálogo de ciudades."""
+    if str(data.get("Ubicacion") or "").strip():
+        c = _norm(data["Ubicacion"])
+        if not await db.cities.find_one({"nombre": c}):
+            raise HTTPException(status_code=400, detail=f"La ciudad {c} no existe. Créala en el menú Ciudades")
+        data["Ubicacion"] = c
+
+
 def _validate_module(m: str) -> str:
     if m not in MODULES:
         raise HTTPException(status_code=404, detail="Módulo no existe")
@@ -647,7 +658,7 @@ async def _fleet_derived_metrics() -> Dict[str, Dict[str, Any]]:
     km faltantes para el próximo preventivo (5000 km desde el último preventivo)."""
     MNTO_INTERVALO_KM = 5000
     mnto_all = await db.mantenimiento.find({}, {"_id": 0}).to_list(20000)
-    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(50000)
+    rutas_all = await db.rutas.find(DONE_TRIPS, {"_id": 0}).to_list(50000)
 
     def _placa(x):
         return str(x.get("Placa Vehiculo") or x.get("Placa Vehículo") or "").strip().upper()
@@ -741,6 +752,10 @@ async def create_record(module: str, payload: RecordIn, user: dict = Depends(get
     if reskey:
         await _require_resource_edit(reskey, user)
     data = dict(payload.data)
+    if module == "rutas":
+        raise HTTPException(status_code=400, detail="Registra los viajes desde Viaje salida")
+    if module == "flota":
+        await _flota_city(data)
     # Auto-generate ascending Nro for mantenimiento/flota if not supplied
     if module in ("mantenimiento", "flota") and not data.get("Nro"):
         docs = await db[col].find({}, {"Nro": 1, "_id": 0}).to_list(20000)
@@ -772,6 +787,13 @@ async def update_record(module: str, record_id: str, payload: RecordIn, user: di
     if reskey:
         await _require_resource_edit(reskey, user)
     data = {k: v for k, v in payload.data.items() if k != "id"}
+    if module == "rutas":
+        data = {k: v for k, v in data.items() if k not in PROTECTED_TRIP_KEYS}
+        cur = await db.rutas.find_one({"id": record_id}, {"_id": 0, "Estado Viaje": 1})
+        if cur and cur.get("Estado Viaje") == "En curso":
+            raise HTTPException(status_code=400, detail="Completa este viaje desde Viaje retorno")
+    if module == "flota":
+        await _flota_city(data)
     data["_updated_by"] = user["username"]
     data["_updated_at"] = datetime.now(timezone.utc).isoformat()
     res = await db[col].update_one({"id": record_id}, {"$set": data})
@@ -884,7 +906,7 @@ async def dashboard(
         total_gasto_mantenimiento += _num(r.get("Costo Total ($)"))
 
     # Consumo combustible desde Rutas (con filtro de fecha)
-    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    rutas_all = await db.rutas.find(DONE_TRIPS, {"_id": 0}).to_list(20000)
     rutas = await _filter_by_cities("rutas", rutas_all, cities)
     d_from = _parse_dt(desde) if desde else None
     d_to = _parse_dt(hasta) if hasta else None
@@ -1074,7 +1096,7 @@ async def get_alerts(dias: int = 30, user: dict = Depends(get_current_user)):
     # Mantenimiento preventivo por kilometraje: cada 5000 km desde el último preventivo.
     MNTO_INTERVALO_KM = 5000
     mnto_all = await db.mantenimiento.find({}, {"_id": 0}).to_list(20000)
-    rutas_all = await db.rutas.find({}, {"_id": 0}).to_list(50000)
+    rutas_all = await db.rutas.find(DONE_TRIPS, {"_id": 0}).to_list(50000)
     # Último odómetro por placa (de la última ruta: mayor Kms Final)
     odom_actual = {}
     for r in rutas_all:
@@ -1257,6 +1279,12 @@ async def module_bulk_import(module: str, file: UploadFile = File(...), user: di
             doc[h] = val
         if len(doc) <= 1:
             continue
+        if module == "flota" and str(doc.get("Ubicacion") or "").strip():
+            try:
+                await _flota_city(doc)
+            except HTTPException as e:
+                errors.append(f"Fila {idx}: {e.detail}")
+                continue
         # Auto Nro para mantenimiento si no viene
         to_insert.append(doc)
     if to_insert:
@@ -1271,7 +1299,7 @@ async def module_bulk_import(module: str, file: UploadFile = File(...), user: di
 
 @api.get("/rutas/map")
 async def rutas_map(desde: Optional[str] = None, hasta: Optional[str] = None, user: dict = Depends(get_current_user)):
-    rutas = await db.rutas.find({}, {"_id": 0}).to_list(20000)
+    rutas = await db.rutas.find(DONE_TRIPS, {"_id": 0}).to_list(20000)
     d_from = _parse_dt(desde) if desde else None
     d_to = _parse_dt(hasta) if hasta else None
 
@@ -1412,7 +1440,7 @@ async def vehicle_history(placa: str, user: dict = Depends(get_current_user)):
     seguros = await db.seguros.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
     impuestos = await db.impuestos.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
     mantenimiento = await db.mantenimiento.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
-    rutas = await db.rutas.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(2000)
+    rutas = await db.rutas.find({"Placa Vehiculo": placa, **DONE_TRIPS}, {"_id": 0}).to_list(2000)
     multas_a = await db.multas.find({"Placa Vehículo": placa}, {"_id": 0}).to_list(500)
     multas_b = await db.multas.find({"Placa Vehiculo": placa}, {"_id": 0}).to_list(500)
     multas = multas_a + multas_b
@@ -1487,7 +1515,7 @@ async def vehicles_history_summary(
     total_comb = 0.0
     total_rutas = 0
     if placas_objetivo:
-        rutas = await db.rutas.find({"Placa Vehiculo": {"$in": placas_objetivo}}, {"_id": 0}).to_list(50000)
+        rutas = await db.rutas.find({"Placa Vehiculo": {"$in": placas_objetivo}, **DONE_TRIPS}, {"_id": 0}).to_list(50000)
         for r in rutas:
             if not _in_range(r):
                 continue
@@ -1701,8 +1729,8 @@ async def vehicle_history_pdf(placa: str, user: dict = Depends(get_current_user)
         rutas_rows.append([
             _fmt_date(r.get("Fecha de Salida")),
             _fmt_date(r.get("Fecha de Llegada")),
-            str(r.get("Origen") or "-")[:14],
-            str(r.get("Destino") or "-")[:14],
+            str(r.get("Origen") or r.get("Ciudad") or "-")[:14],
+            str(r.get("Destino") or r.get("Ruta") or "-")[:14],
             f"{max(km, 0):,.0f}",
             _fmt_money(r.get("Total Combustible ($)")),
             _fmt_money(r.get("Gasto Total ($)")),
@@ -4378,7 +4406,7 @@ WEBHOOK_CRON_SECRET = os.environ.get("WEBHOOK_CRON_SECRET", "")
 async def _send_route_reminders():
     """Envía a todos los usuarios con correo el recordatorio de subir su ruta del día."""
     users = await db.users.find({}, {"_id": 0, "email": 1, "name": 1}).to_list(10000)
-    link = f"{APP_BASE_URL}/vehiculos/rutas" if APP_BASE_URL else None
+    link = f"{APP_BASE_URL}/vehiculos/viaje-salida" if APP_BASE_URL else None
     boton = ""
     if link:
         boton = (f'<p style="margin:18px 0"><a href="{escape(link)}" style="display:inline-block;'
@@ -4437,6 +4465,9 @@ async def _catalog_startup_handler():
 
 
 app.add_event_handler("startup", _catalog_startup_handler)
+_trips_router, _trips_startup = create_trips_router(db, get_current_user, _effective_perms, _require_resource_edit, _resolve_cities, _filter_by_cities)
+app.include_router(_trips_router)
+app.add_event_handler("startup", _trips_startup)
 _ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)

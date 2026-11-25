@@ -103,3 +103,14 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Frontend: `src/pages/CiudadesPage.jsx` + `src/components/CatalogDialog.jsx`, menú "Ciudades" junto a Usuarios en Vehículos/Herramientas/Gastos y en Ticket servicio (admin). Se eliminó la pantalla "Regiones y ciudades" del módulo tickets (ts_regions queda sin uso, no borrada).
 - Prueba: `python /app/backend/tests/ts_smoke.py` → 50/50 PASS.
 
+## Ciudades: unir + ubicación de vehículos (2026-11-25)
+- `POST /api/catalog/cities/{id}/merge` (admin) mueve users/flota/impuestos/bodegas/técnicos/rutas de servicio a la ciudad destino y elimina la origen. Botón "Unir" en Ciudades (`MergeCityDialog.jsx`). Ejecutado en preview: STO DOMINGO → SANTO DOMINGO (9 vehículos, 4 impuestos, 1 bodega). En producción repetir con el botón.
+- Flota "Ubicacion" = selector del catálogo (`dynamicSource: "ciudades"`); backend valida en crear/editar/carga masiva.
+
+## Vehículos: Rutas de servicio + Viaje salida / retorno (2026-11-25)
+- Backend `/app/backend/trips.py`: catálogo `service_routes` {codigo RS-####, ruta, ciudad, estado} con CRUD, plantilla e importación Excel (`/api/service-routes*`); `/api/service-routes/for-conductor`; viajes sobre colección `rutas`: `POST /api/viajes/salida` (código VJ-AAAA-NNNNNN, Estado Viaje "En curso", Ruta/Ciudad snapshot, creador), `GET /api/viajes`, `GET /api/viajes/pendientes` (propios en curso), `PUT /api/viajes/{id}/retorno` (valida fecha/km, recalcula, Finalizado, atómico, replace_one por claves con ".").
+- Migración: rutas históricas sin estado → "Finalizado"; índice único parcial "Codigo Viaje". Reportes/dashboards/historial/mapa/odómetro excluyen "En curso" (DONE_TRIPS). POST genérico /modules/rutas bloqueado; PUT genérico no toca campos protegidos ni viajes en curso.
+- Permisos: veh_rutas = "Viajes (salida / retorno)"; nuevo recurso veh_rutas_servicio (Matriz). Técnico ve solo sus viajes.
+- Frontend: menús Viaje salida / Viaje retorno / Rutas de servicio (reemplazan Rutas; /vehiculos/rutas redirige). Archivos `src/pages/viajes/*`, `src/components/SearchSelect.jsx`. Campos Origen/Destino quitados del formulario (datos históricos intactos).
+- Prueba: `python /app/backend/tests/trips_smoke.py` → 36/36 PASS.
+

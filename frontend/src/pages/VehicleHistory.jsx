@@ -342,8 +342,8 @@ export default function VehicleHistory() {
                   <TableRow key={i}>
                     <TableCell>{fmtDate(r["Fecha de Salida"])}</TableCell>
                     <TableCell>{fmtDate(r["Fecha de Llegada"])}</TableCell>
-                    <TableCell>{r.Origen || "—"}</TableCell>
-                    <TableCell>{r.Destino || "—"}</TableCell>
+                    <TableCell>{r.Origen || r.Ciudad || "—"}</TableCell>
+                    <TableCell>{r.Destino || r.Ruta || "—"}</TableCell>
                     <TableCell className="text-right font-mono">{numberFmt(Math.max((r["Kms Final (Odómetro)"] || 0) - (r["Kms Inicial (Odómetro)"] || 0), 0))}</TableCell>
                     <TableCell className="text-right font-mono">{money(r["Total Combustible ($)"])}</TableCell>
                     <TableCell className="text-right font-mono">{money(r["Gasto Total ($)"])}</TableCell>

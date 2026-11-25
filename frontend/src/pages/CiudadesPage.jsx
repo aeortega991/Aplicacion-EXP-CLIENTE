@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, MapPinned, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, MapPinned, Search, GitMerge } from "lucide-react";
 import { CatalogDialog } from "@/components/CatalogDialog";
+import { MergeCityDialog } from "@/components/MergeCityDialog";
 
 const RegionCard = ({ g, onEdit, onDelete }) => (
   <div className="rounded-lg border border-neutral-200 bg-white p-4" data-testid={`region-card-${g.nombre}`}>
@@ -29,6 +30,7 @@ export default function CiudadesPage() {
   const [data, setData] = useState({ regions: [], cities: [] });
   const [edit, setEdit] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [merge, setMerge] = useState(null);
   const [q, setQ] = useState("");
   const [regionFilter, setRegionFilter] = useState("all");
 
@@ -128,6 +130,7 @@ export default function CiudadesPage() {
                   <TableCell>{c.usuarios ? <Badge variant="secondary">{c.usuarios}</Badge> : <span className="text-neutral-400 text-sm">0</span>}</TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     <Button variant="ghost" size="sm" onClick={() => setEdit({ kind: "city", ...c })} data-testid={`city-edit-${c.nombre}`}><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => setMerge(c)} title="Unir con otra ciudad" data-testid={`city-merge-${c.nombre}`}><GitMerge className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="sm" onClick={() => setConfirmDel({ kind: "city", id: c.id, nombre: c.nombre })} data-testid={`city-delete-${c.nombre}`}><Trash2 className="w-4 h-4 text-red-600" /></Button>
                   </TableCell>
                 </TableRow>
@@ -141,6 +144,7 @@ export default function CiudadesPage() {
       </section>
 
       <CatalogDialog item={edit} regions={data.regions} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
+      <MergeCityDialog city={merge} cities={data.cities} onClose={() => setMerge(null)} onDone={() => { setMerge(null); load(); }} />
 
       <AlertDialog open={!!confirmDel} onOpenChange={(o) => !o && setConfirmDel(null)}>
         <AlertDialogContent>
