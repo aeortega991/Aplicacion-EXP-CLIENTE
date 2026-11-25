@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
+from catalog import create_catalog_router, region_of_city as catalog_region_of_city, validate_location, catalog_lists
 
 # ---- DB ----
 mongo_url = os.environ['MONGO_URL']
@@ -427,6 +428,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Usuario/documento ya existe")
     if payload.role not in ALLOWED_ROLES:
         raise HTTPException(status_code=400, detail="Rol inválido")
+    ciudad, region = await validate_location(db, payload.ciudad, payload.region, payload.role)
     doc = {
         "id": str(uuid.uuid4()),
         "username": username,
@@ -434,8 +436,8 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_admin)):
         "name": payload.name.strip(),
         "email": payload.email,
         "role": payload.role,
-        "ciudad": (payload.ciudad or "").strip() or None,
-        "region": (payload.region or "").strip().upper() or None,
+        "ciudad": ciudad,
+        "region": region,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -514,6 +516,10 @@ async def users_bulk_import(file: UploadFile = File(...), user: dict = Depends(r
         if await db.users.find_one({"username": username}):
             errors.append(f"Fila {idx}: el documento '{documento}' ya existe"); continue
         seen.add(username)
+        try:
+            ciudad, region = await validate_location(db, rec.get("ciudad"), rec.get("region"), role)
+        except HTTPException as e:
+            errors.append(f"Fila {idx}: {e.detail}"); continue
         password = str(rec.get("password") or "").strip() or USER_DEFAULT_PASSWORD
         doc = {
             "id": str(uuid.uuid4()),
@@ -522,8 +528,8 @@ async def users_bulk_import(file: UploadFile = File(...), user: dict = Depends(r
             "name": name,
             "email": (str(rec.get("email")).strip() if rec.get("email") else None),
             "role": role,
-            "ciudad": (str(rec.get("ciudad")).strip().upper() if rec.get("ciudad") else None),
-            "region": (str(rec.get("region")).strip().upper() if rec.get("region") else None),
+            "ciudad": ciudad,
+            "region": region,
             "password_hash": hash_password(password),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -552,10 +558,18 @@ async def update_user(user_id: str, payload: UserUpdate, user: dict = Depends(re
         if payload.role not in ALLOWED_ROLES:
             raise HTTPException(status_code=400, detail="Rol inválido")
         update["role"] = payload.role
-    if payload.ciudad is not None:
-        update["ciudad"] = (payload.ciudad or "").strip() or None
-    if payload.region is not None:
-        update["region"] = (payload.region or "").strip().upper() or None
+    if payload.ciudad is not None or payload.region is not None or payload.role is not None:
+        current = await db.users.find_one({"id": user_id}, {"_id": 0, "ciudad": 1, "region": 1, "role": 1})
+        if not current:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        ciudad, region = await validate_location(
+            db,
+            payload.ciudad if payload.ciudad is not None else current.get("ciudad"),
+            payload.region if payload.region is not None else current.get("region"),
+            payload.role or current.get("role"),
+            user_id,
+        )
+        update["ciudad"], update["region"] = ciudad, region
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     if not update:
@@ -959,9 +973,8 @@ async def dashboard(
 
 @api.get("/cities")
 async def list_cities(user: dict = Depends(get_current_user)):
-    docs = await db.flota.find({}, {"_id": 0, "Ubicacion": 1}).to_list(5000)
-    cities = sorted({str(d.get("Ubicacion") or "").strip() for d in docs if d.get("Ubicacion")})
-    return {"cities": cities}
+    _, cities = await catalog_lists(db)
+    return {"cities": [c["nombre"] for c in cities]}
 
 # ---- Alerts / Export / Map ----
 CITY_COORDS = {
@@ -3453,14 +3466,6 @@ async def _seed_expenses_module():
     await db.expenses.create_index("id", unique=True)
 
 
-def _region_of_city(ciudad: Optional[str]) -> Optional[str]:
-    if not ciudad:
-        return None
-    c = str(ciudad).strip().upper()
-    for reg, cities in REGION_CITIES.items():
-        if c in cities:
-            return reg
-    return None
 
 
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "").rstrip("/")
@@ -3656,10 +3661,12 @@ class InvoiceIn(BaseModel):
 @api.get("/expenses/meta")
 async def expenses_meta(user: dict = Depends(get_current_user)):
     accounts = await db.expense_accounts.find({}, {"_id": 0}).sort("nombre", 1).to_list(500)
+    regions, cities = await catalog_lists(db)
+    region_map = {g["nombre"]: [c["nombre"] for c in cities if c.get("region_id") == g["id"]] for g in regions}
     return {
         "accounts": accounts,
-        "regions": REGION_CITIES,
-        "cities": ALL_EXPENSE_CITIES,
+        "regions": region_map,
+        "cities": [c["nombre"] for c in cities],
         "estados": ESTADO_LABELS,
     }
 
@@ -3725,7 +3732,7 @@ async def create_expense(payload: ExpenseCreate, user: dict = Depends(get_curren
         ciudad = (user.get("ciudad") or "").strip().upper() or None
     if not ciudad:
         raise HTTPException(status_code=400, detail="El usuario no tiene ciudad asignada")
-    region = user.get("region") or _region_of_city(ciudad)
+    region = user.get("region") or await catalog_region_of_city(db, ciudad)
 
     # Numero secuencial
     last = await db.expenses.find_one({}, sort=[("seq", -1)])
@@ -4421,7 +4428,16 @@ async def cron_route_reminder(background_tasks: BackgroundTasks, authorization: 
 app.include_router(api)
 
 from service_tickets import create_ticket_router  # noqa: E402
-_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, REGION_CITIES)
+_catalog_router, _catalog_startup = create_catalog_router(db, get_current_user, require_admin)
+app.include_router(_catalog_router)
+
+
+async def _catalog_startup_handler():
+    await _catalog_startup(REGION_CITIES)
+
+
+app.add_event_handler("startup", _catalog_startup_handler)
+_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
 

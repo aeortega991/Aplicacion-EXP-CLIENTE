@@ -12,6 +12,8 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, R
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
+from catalog import city_region
+
 logger = logging.getLogger("service_tickets")
 
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
@@ -76,12 +78,6 @@ def _day_bound_utc(day: str, add_days: int = 0) -> str:
     return d.astimezone(timezone.utc).isoformat()
 
 
-class RegionIn(BaseModel):
-    nombre: str
-    ciudades: List[str] = []
-    analista_id: Optional[str] = None
-
-
 class EstadoIn(BaseModel):
     estado: str
 
@@ -99,7 +95,7 @@ class MensajeIn(BaseModel):
     texto: str
 
 
-def create_ticket_router(db, get_current_user, require_admin, default_regions: dict):
+def create_ticket_router(db, get_current_user, require_admin):
     r = APIRouter(prefix="/api/ts")
 
     async def ts_user(user: dict = Depends(get_current_user)) -> dict:
@@ -131,66 +127,9 @@ def create_ticket_router(db, get_current_user, require_admin, default_regions: d
             return None
         return await db.users.find_one({"id": uid, "role": ANALISTA}, {"_id": 0, "password_hash": 0})
 
-    # ---------- Regiones (admin) ----------
-    async def _clean_region(payload: RegionIn, rid: Optional[str] = None) -> dict:
-        nombre = payload.nombre.strip()
-        if not nombre:
-            raise HTTPException(status_code=400, detail="El nombre de la región es obligatorio")
-        others = {"id": {"$ne": rid}}
-        if await db.ts_regions.find_one({"nombre_norm": _norm(nombre), **others}):
-            raise HTTPException(status_code=400, detail="Ya existe una región con ese nombre")
-        ciudades = sorted({_norm(c) for c in payload.ciudades if _norm(c)})
-        if ciudades:
-            clash = await db.ts_regions.find_one({"ciudades": {"$in": ciudades}, **others}, {"_id": 0})
-            if clash:
-                dup = ", ".join(sorted(set(ciudades) & set(clash.get("ciudades", []))))
-                raise HTTPException(status_code=400, detail=f"{dup} ya pertenece a la región {clash['nombre']}")
-        aid = payload.analista_id or None
-        if aid:
-            if not await _active_analyst(aid):
-                raise HTTPException(status_code=400, detail="El usuario seleccionado no es un analista técnico activo")
-            other = await db.ts_regions.find_one({"analista_id": aid, **others}, {"_id": 0})
-            if other:
-                raise HTTPException(status_code=400, detail=f"El analista ya es responsable de la región {other['nombre']}")
-        return {"nombre": nombre, "nombre_norm": _norm(nombre), "ciudades": ciudades, "analista_id": aid}
-
-    @r.get("/regions")
-    async def list_regions(user: dict = Depends(require_admin)):
-        regions = await db.ts_regions.find({}, {"_id": 0}).sort("nombre", 1).to_list(500)
-        analysts = await db.users.find({"role": ANALISTA}, {"_id": 0, "id": 1, "name": 1, "username": 1}).sort("name", 1).to_list(1000)
-        amap = {a["id"]: a for a in analysts}
-        for g in regions:
-            g["analista"] = amap.get(g.get("analista_id"))
-        mapped = {c for g in regions for c in g.get("ciudades", [])}
-        tech_cities = {_norm(c) for c in await db.users.distinct("ciudad", {"role": TECNICO}) if _norm(c)}
-        return {
-            "regions": regions,
-            "analysts": analysts,
-            "unmapped_cities": sorted(tech_cities - mapped),
-            "known_cities": sorted(mapped | tech_cities),
-        }
-
-    @r.post("/regions")
-    async def create_region(payload: RegionIn, user: dict = Depends(require_admin)):
-        doc = {"id": str(uuid.uuid4()), **(await _clean_region(payload)), "created_at": _now()}
-        await db.ts_regions.insert_one(doc)
-        doc.pop("_id", None)
-        return doc
-
-    @r.put("/regions/{rid}")
-    async def update_region(rid: str, payload: RegionIn, user: dict = Depends(require_admin)):
-        if not await db.ts_regions.find_one({"id": rid}):
-            raise HTTPException(status_code=404, detail="Región no encontrada")
-        clean = await _clean_region(payload, rid)
-        await db.ts_regions.update_one({"id": rid}, {"$set": {**clean, "updated_at": _now()}})
-        return await db.ts_regions.find_one({"id": rid}, {"_id": 0})
-
-    @r.delete("/regions/{rid}")
-    async def delete_region(rid: str, user: dict = Depends(require_admin)):
-        res = await db.ts_regions.delete_one({"id": rid})
-        if not res.deleted_count:
-            raise HTTPException(status_code=404, detail="Región no encontrada")
-        return {"ok": True}
+    @r.get("/analysts")
+    async def list_analysts(user: dict = Depends(require_admin)):
+        return await db.users.find({"role": ANALISTA}, {"_id": 0, "id": 1, "name": 1, "region": 1}).sort("name", 1).to_list(1000)
 
     # ---------- Tickets ----------
     @r.get("/tickets")
@@ -257,7 +196,7 @@ def create_ticket_router(db, get_current_user, require_admin, default_regions: d
 
         now = _now()
         ciudad = _norm(user.get("ciudad")) or None
-        region = await db.ts_regions.find_one({"ciudades": ciudad}, {"_id": 0}) if ciudad else None
+        region = await city_region(db, ciudad)
         doc = {
             "id": tid, "modelo": modelo, "serie": serie, "descripcion": descripcion,
             "tecnico_id": user["id"], "tecnico_nombre": user.get("name"), "tecnico_username": user.get("username"),
@@ -287,7 +226,7 @@ def create_ticket_router(db, get_current_user, require_admin, default_regions: d
 
         warning = None
         try:
-            analyst = await _active_analyst(region.get("analista_id")) if region else None
+            analyst = await db.users.find_one({"role": ANALISTA, "region": region["nombre"]}, {"_id": 0, "password_hash": 0}) if region else None
             if analyst:
                 upd = {"analista_id": analyst["id"], "analista_nombre": analyst.get("name"), "estado": "Asignado", "updated_at": _now()}
                 await db.service_tickets.update_one({"id": tid}, {"$set": upd})
@@ -418,15 +357,6 @@ def create_ticket_router(db, get_current_user, require_admin, default_regions: d
         await db.ts_media.create_index("ticket_id")
         await db.ts_messages.create_index([("ticket_id", 1), ("created_at", 1)])
         await db.ts_status_history.create_index("ticket_id")
-        await db.ts_regions.create_index("id", unique=True)
-        await db.ts_regions.create_index("ciudades")
-        await db.ts_regions.create_index("analista_id")
-        if await db.ts_regions.count_documents({}) == 0:
-            for name, cities in default_regions.items():
-                await db.ts_regions.insert_one({
-                    "id": str(uuid.uuid4()), "nombre": name, "nombre_norm": _norm(name),
-                    "ciudades": sorted({_norm(c) for c in cities}), "analista_id": None, "created_at": _now(),
-                })
         try:
             await asyncio.to_thread(_init_storage)
         except Exception as e:

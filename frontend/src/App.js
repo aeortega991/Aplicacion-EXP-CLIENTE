@@ -34,7 +34,7 @@ import TicketsDashboard from "@/pages/tickets/TicketsDashboard";
 import TicketsBoard from "@/pages/tickets/TicketsBoard";
 import TicketsList from "@/pages/tickets/TicketsList";
 import TicketDetail from "@/pages/tickets/TicketDetail";
-import RegionesPage from "@/pages/tickets/RegionesPage";
+import CiudadesPage from "@/pages/CiudadesPage";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -85,6 +85,7 @@ function App() {
               <Route key={m.key} path={m.key} element={<ModulePage moduleKey={m.key} />} />
             ))}
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
+            <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="/herramientas" element={<Protected><RequireAccess resource="herramientas"><ToolsLayout /></RequireAccess></Protected>}>
             <Route index element={<ToolsDashboard />} />
@@ -98,6 +99,7 @@ function App() {
             <Route path="reporte-historico" element={<ReporteHistorico />} />
             <Route path="bajas" element={<BajasPage />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
+            <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="/gastos" element={<Protected><RequireAccess resource="gastos"><GastosLayout /></RequireAccess></Protected>}>
             <Route index element={<GastosDashboard />} />
@@ -106,13 +108,14 @@ function App() {
             <Route path="reportes" element={<GastosReportes />} />
             <Route path="usuarios" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="cuentas" element={<AdminOnly><CuentasPage /></AdminOnly>} />
+            <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="/tickets" element={<Protected><RequireTicketRole><TicketsLayout /></RequireTicketRole></Protected>}>
             <Route index element={<TicketsDashboard />} />
             <Route path="tablero" element={<TicketsBoard />} />
             <Route path="listado" element={<TicketsList />} />
             <Route path="t/:id" element={<TicketDetail />} />
-            <Route path="regiones" element={<AdminOnly><RegionesPage /></AdminOnly>} />
+            <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

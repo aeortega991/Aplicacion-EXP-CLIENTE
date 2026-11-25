@@ -25,22 +25,45 @@ def login(u, p):
 
 
 A = login("aeortega", "admin123")
-users = {}
-for doc, name, role, ciudad in [("ts_tec1", "TEC UNO QUITO", "tecnico", "Quito"), ("ts_tec2", "TEC DOS PUYO", "tecnico", "PUYO"),
-                                ("ts_ana1", "ANALISTA UNO", "analista_tecnico", None), ("ts_ana2", "ANALISTA DOS", "analista_tecnico", None)]:
-    r = requests.post(f"{API}/users", headers=A, json={"documento": doc, "password": "test123", "name": name, "role": role, "ciudad": ciudad})
+users, cat = {}, {"regions": [], "cities": []}
+
+
+def mk(kind, body):
+    r = requests.post(f"{API}/catalog/{kind}", headers=A, json=body)
+    if r.ok:
+        cat[kind].append(r.json()["id"])
+    return r
+
+
+rA = mk("regions", {"nombre": "ts-r9"}).json()
+rB = mk("regions", {"nombre": "TS-R8"}).json()
+check("region created uppercase", rA.get("nombre") == "TS-R9")
+check("duplicate region rejected", requests.post(f"{API}/catalog/regions", headers=A, json={"nombre": "TS-R9"}).status_code == 400)
+cA = mk("cities", {"nombre": "ts ciudad", "region_id": rA["id"]}).json()
+mk("cities", {"nombre": "TS SINREGION", "region_id": None})
+check("duplicate city rejected", requests.post(f"{API}/catalog/cities", headers=A, json={"nombre": "TS CIUDAD"}).status_code == 400)
+r = requests.post(f"{API}/users", headers=A, json={"documento": "ts_bad", "password": "x", "name": "X", "role": "tecnico", "ciudad": "NO EXISTE"})
+check("user with unknown city rejected", r.status_code == 400, r.text)
+r = requests.post(f"{API}/users", headers=A, json={"documento": "ts_bad", "password": "x", "name": "X", "role": "analista_tecnico"})
+check("analyst without region rejected", r.status_code == 400, r.text)
+
+for doc, name, role, ciudad, region in [("ts_tec1", "TEC UNO", "tecnico", "ts ciudad", None), ("ts_tec2", "TEC DOS", "tecnico", "TS SINREGION", None),
+                                        ("ts_ana1", "ANALISTA UNO", "analista_tecnico", None, "TS-R9"), ("ts_ana2", "ANALISTA DOS", "analista_tecnico", None, "TS-R8")]:
+    r = requests.post(f"{API}/users", headers=A, json={"documento": doc, "password": "test123", "name": name, "role": role, "ciudad": ciudad, "region": region})
     users[doc] = r.json()["id"] if r.ok else None
 check("create test users", all(users.values()))
 created_tickets = []
-r1 = None
 try:
-    regs = requests.get(f"{API}/ts/regions", headers=A).json()
-    r1 = next(g for g in regs["regions"] if "QUITO" in g["ciudades"])
-    check("regions seeded from catalog", len(regs["regions"]) >= 2 and "PUYO" in regs["unmapped_cities"])
-    r = requests.put(f"{API}/ts/regions/{r1['id']}", headers=A, json={"nombre": r1["nombre"], "ciudades": r1["ciudades"], "analista_id": users["ts_ana1"]})
-    check("assign analyst to region", r.ok, r.text)
-    r = requests.put(f"{API}/ts/regions/{r1['id']}", headers=A, json={"nombre": r1["nombre"], "ciudades": r1["ciudades"] + ["GUAYAQUIL"], "analista_id": users["ts_ana1"]})
-    check("duplicate city across regions rejected", r.status_code == 400, r.text)
+    u1 = next(u for u in requests.get(f"{API}/users", headers=A).json() if u["id"] == users["ts_tec1"])
+    check("region derived from city", u1["region"] == "TS-R9" and u1["ciudad"] == "TS CIUDAD", u1)
+    r = requests.post(f"{API}/users", headers=A, json={"documento": "ts_bad", "password": "x", "name": "X", "role": "analista_tecnico", "region": "TS-R9"})
+    check("second analyst same region rejected", r.status_code == 400, r.text)
+    check("delete city in use blocked", requests.delete(f"{API}/catalog/cities/{cA['id']}", headers=A).status_code == 400)
+    check("rename region in use blocked", requests.put(f"{API}/catalog/regions/{rA['id']}", headers=A, json={"nombre": "OTRA"}).status_code == 400)
+    check("delete region with cities blocked", requests.delete(f"{API}/catalog/regions/{rA['id']}", headers=A).status_code == 400)
+    check("catalog used by /cities", "TS CIUDAD" in requests.get(f"{API}/cities", headers=A).json()["cities"])
+    check("catalog used by expenses meta", "TS CIUDAD" in requests.get(f"{API}/expenses/meta", headers=A).json()["regions"].get("TS-R9", []))
+    check("non-admin cannot edit catalog", requests.post(f"{API}/catalog/cities", headers=login("ts_tec1", "test123"), json={"nombre": "X"}).status_code == 403)
 
     T1, T2 = login("ts_tec1", "test123"), login("ts_tec2", "test123")
     N1, N2 = login("ts_ana1", "test123"), login("ts_ana2", "test123")
@@ -123,11 +146,13 @@ finally:
     for col in ("ts_media", "ts_messages", "ts_status_history"):
         mdb[col].delete_many({"ticket_id": {"$in": created_tickets}})
     mdb.service_tickets.delete_many({"id": {"$in": created_tickets}})
-    if r1:
-        mdb.ts_regions.update_one({"id": r1["id"]}, {"$set": {"analista_id": None}})
     for uid in users.values():
         if uid:
             requests.delete(f"{API}/users/{uid}", headers=A)
+    for cid in cat["cities"]:
+        requests.delete(f"{API}/catalog/cities/{cid}", headers=A)
+    for rid in cat["regions"]:
+        requests.delete(f"{API}/catalog/regions/{rid}", headers=A)
     print("cleanup done")
 
 print(f"\n{ok_count} passed, {len(fails)} failed: {fails}")

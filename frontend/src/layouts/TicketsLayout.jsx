@@ -69,7 +69,7 @@ export default function TicketsLayout() {
           <NavLink to="/tickets/tablero" className={tab} data-testid="ts-nav-tablero"><Columns3 className="w-4 h-4" /> Tablero</NavLink>
           <NavLink to="/tickets/listado" className={tab} data-testid="ts-nav-listado"><List className="w-4 h-4" /> Listado</NavLink>
           {user?.role === "admin" && (
-            <NavLink to="/tickets/regiones" className={tab} data-testid="ts-nav-regiones"><MapPinned className="w-4 h-4" /> Regiones y ciudades</NavLink>
+            <NavLink to="/tickets/ciudades" className={tab} data-testid="ts-nav-ciudades"><MapPinned className="w-4 h-4" /> Ciudades</NavLink>
           )}
         </nav>
       </header>

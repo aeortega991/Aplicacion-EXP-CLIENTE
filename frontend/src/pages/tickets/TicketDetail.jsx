@@ -63,7 +63,7 @@ const StatePanel = ({ t, onChanged }) => {
 const ReassignPanel = ({ t, onChanged }) => {
   const [analysts, setAnalysts] = useState([]);
   const [aid, setAid] = useState(t.analista_id || "");
-  useEffect(() => { api.get("/ts/regions").then((r) => setAnalysts(r.data.analysts || [])).catch(() => {}); }, []);
+  useEffect(() => { api.get("/ts/analysts").then((r) => setAnalysts(r.data || [])).catch(() => {}); }, []);
   const save = async () => {
     try { await api.put(`/ts/tickets/${t.id}/asignar`, { analista_id: aid }); toast.success("Ticket asignado"); onChanged(); }
     catch (e) { toast.error(formatApiError(e)); }
@@ -75,7 +75,7 @@ const ReassignPanel = ({ t, onChanged }) => {
       <div className="flex gap-2">
         <Select value={aid} onValueChange={setAid}>
           <SelectTrigger data-testid="ts-reassign-select"><SelectValue placeholder="Selecciona analista" /></SelectTrigger>
-          <SelectContent>{analysts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
+          <SelectContent>{analysts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}{a.region ? ` · ${a.region}` : ""}</SelectItem>)}</SelectContent>
         </Select>
         <Button onClick={save} disabled={!aid || aid === t.analista_id} variant="outline" data-testid="ts-reassign-save">Asignar</Button>
       </div>

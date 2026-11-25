@@ -22,7 +22,7 @@ export default function TicketsDashboard() {
       {data.sin_asignar > 0 && (
         <Link to="/tickets/listado" className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="ts-unassigned-warning">
           <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600" />
-          <span><b>{data.sin_asignar}</b> ticket(s) sin analista asignado: no existe analista responsable para la región del técnico. Ábrelos para asignarlos manualmente o configura la región.</span>
+          <span><b>{data.sin_asignar}</b> ticket(s) sin analista asignado: la ciudad del técnico no tiene región o la región no tiene un analista técnico (se asigna en Usuarios). Ábrelos para asignarlos manualmente.</span>
         </Link>
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

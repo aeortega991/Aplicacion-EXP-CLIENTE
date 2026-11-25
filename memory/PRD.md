@@ -96,3 +96,10 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Backlog: notificaciones (excluidas por alcance), SLA/priorización (excluidas).
 - 2026-11-25: Formulario "Nuevo ticket" con botones Tomar foto / Grabar video (cámara trasera del teléfono) y Galería/archivo, con vista previa y quitar (`MediaPicker.jsx`).
 
+## Catálogo único de Ciudades y Regiones (2026-11-25)
+- Backend `/app/backend/catalog.py` → `/api/catalog` (GET cualquier usuario; CRUD regiones/ciudades solo admin). Colecciones `regions` {id,nombre} y `cities` {id,nombre,region_id}. Migración inicial idempotente desde ts_regions/REGION_CITIES + ciudades ya usadas en users/flota/bodegas/técnicos/gastos (STO DOMINGO quedó sin región).
+- Fuente para toda la app: `/api/cities`, `/expenses/meta` (regiones→ciudades), región derivada de la ciudad al crear gastos, formulario y carga masiva de usuarios (ciudad/región deben existir en catálogo), Ticket servicio.
+- Reglas: no renombrar/eliminar ciudad en uso (usuarios/vehículos); no renombrar región con usuarios ni eliminar con ciudades/usuarios. Analista técnico requiere región y solo uno por región (se asigna en Usuarios). Región explícita del usuario prevalece; si falta, se deriva de la ciudad.
+- Frontend: `src/pages/CiudadesPage.jsx` + `src/components/CatalogDialog.jsx`, menú "Ciudades" junto a Usuarios en Vehículos/Herramientas/Gastos y en Ticket servicio (admin). Se eliminó la pantalla "Regiones y ciudades" del módulo tickets (ts_regions queda sin uso, no borrada).
+- Prueba: `python /app/backend/tests/ts_smoke.py` → 50/50 PASS.
+

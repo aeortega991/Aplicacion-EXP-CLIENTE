@@ -41,7 +41,7 @@ const ROLE_BADGE = {
 export default function UsersPage() {
   const { isAdmin } = useAuth();
   const [users, setUsers] = useState([]);
-  const [regionMap, setRegionMap] = useState({});
+  const [catalog, setCatalog] = useState({ regions: [], cities: [] });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
@@ -55,8 +55,10 @@ export default function UsersPage() {
   };
   useEffect(() => {
     load();
-    api.get("/expenses/meta").then((r) => setRegionMap(r.data.regions || {})).catch(() => {});
+    api.get("/catalog").then((r) => setCatalog(r.data)).catch(() => {});
   }, []);
+  const regionOfCity = (name) => catalog.cities.find((c) => c.nombre === name)?.region || "";
+  const regionRequired = ["coordinador", "lider", "analista_tecnico"].includes(form.role);
 
   const openCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
   const openEdit = (u) => { setEditing(u); setForm({ ...empty, ...u, password: "" }); setOpen(true); };
@@ -177,18 +179,28 @@ export default function UsersPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Región {["coordinador", "lider"].includes(form.role) ? <span className="text-xs text-red-500">*</span> : <span className="text-xs text-neutral-400">(opcional)</span>}</Label>
-                <Select value={form.region || "__none__"} onValueChange={(v) => setForm((s) => ({ ...s, region: v === "__none__" ? "" : v, ciudad: "" }))}>
+                <Label>Región {regionRequired ? <span className="text-xs text-red-500">*</span> : <span className="text-xs text-neutral-400">(opcional)</span>}</Label>
+                <Select value={form.region || "__none__"} onValueChange={(v) => setForm((s) => ({ ...s, region: v === "__none__" ? "" : v }))}>
                   <SelectTrigger data-testid="user-region-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">— Sin región —</SelectItem>
-                    {Object.keys(regionMap).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    {catalog.regions.map((g) => <SelectItem key={g.id} value={g.nombre}>{g.nombre}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {form.role === "analista_tecnico" && <p className="text-[11px] text-neutral-500">Responsable de los tickets de servicio de esta región.</p>}
               </div>
               <div className="space-y-2 col-span-2">
-                <Label>Ciudad {form.role === "admin" ? <span className="text-xs text-neutral-400">(opcional)</span> : null}{form.region ? <span className="text-xs text-neutral-400"> · región {form.region}</span> : null}</Label>
-                <Input value={form.ciudad || ""} onChange={(e) => setForm((s) => ({ ...s, ciudad: e.target.value }))} placeholder="Escribe la ciudad (texto libre)" data-testid="user-ciudad-input" />
+                <Label>Ciudad <span className="text-xs text-neutral-400">(se administran en el menú Ciudades)</span></Label>
+                <Select value={form.ciudad || "__none__"} onValueChange={(v) => setForm((s) => {
+                  const ciudad = v === "__none__" ? "" : v;
+                  return { ...s, ciudad, region: s.region || regionOfCity(ciudad) };
+                })}>
+                  <SelectTrigger data-testid="user-ciudad-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Sin ciudad —</SelectItem>
+                    {catalog.cities.map((c) => <SelectItem key={c.id} value={c.nombre}>{c.nombre}{c.region ? ` · ${c.region}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">

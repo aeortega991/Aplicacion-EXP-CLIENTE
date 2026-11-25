@@ -15,6 +15,7 @@ import {
   BellRing,
   Car,
   Users,
+  MapPinned,
   ArrowLeft,
   LogOut,
 } from "lucide-react";
@@ -106,6 +107,10 @@ export default function AppLayout() {
               <NavLink to="/vehiculos/usuarios" className={navClass} data-testid="nav-usuarios">
                 <Users className="w-4 h-4" />
                 <span>Usuarios</span>
+              </NavLink>
+              <NavLink to="/vehiculos/ciudades" className={navClass} data-testid="nav-ciudades">
+                <MapPinned className="w-4 h-4" />
+                <span>Ciudades</span>
               </NavLink>
             </>
           )}
