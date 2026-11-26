@@ -91,7 +91,7 @@ export default function Hub() {
               testId="hub-gastos-card"
             />
           )}
-          {["tecnico", "analista_tecnico", "admin"].includes(user?.role) && (
+          {["tecnico", "lider", "analista_tecnico", "admin"].includes(user?.role) && (
             <ModuleCard
               to="/tickets"
               icon={Ticket}

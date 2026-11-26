@@ -27,8 +27,9 @@ ALLOWED_MEDIA = {
 }
 ESTADOS = ["Creado", "Asignado", "Info cargada", "Bloqueado", "Cerrado"]
 CERRADO = "Cerrado"
-TECNICO, ANALISTA, ADMIN = "tecnico", "analista_tecnico", "admin"
-TS_ROLES = (TECNICO, ANALISTA, ADMIN)
+TECNICO, ANALISTA, ADMIN, LIDER = "tecnico", "analista_tecnico", "admin", "lider"
+TS_ROLES = (TECNICO, ANALISTA, ADMIN, LIDER)
+CREATOR_ROLES = (TECNICO, LIDER)  # roles que pueden crear tickets
 LOCAL_TZ = timezone(timedelta(hours=-5))  # Ecuador
 SYSTEM_USER = {"id": None, "name": "Sistema (asignación automática)"}
 
@@ -252,8 +253,8 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
     @r.post("/tickets")
     async def create_ticket(modelo: str = Form(""), serie: str = Form(""), descripcion: str = Form(""),
                             mediciones: str = Form(""), file: Optional[UploadFile] = File(None), user: dict = Depends(ts_user)):
-        if user["role"] != TECNICO:
-            raise HTTPException(status_code=403, detail="Solo los técnicos pueden crear tickets")
+        if user["role"] not in CREATOR_ROLES:
+            raise HTTPException(status_code=403, detail="Solo los técnicos y líderes pueden crear tickets")
         modelo, serie, descripcion = modelo.strip(), serie.strip(), descripcion.strip()
         mediciones = mediciones.strip()
         if len(mediciones) > 4000:
@@ -285,6 +286,7 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         doc = {
             "id": tid, "modelo": modelo, "serie": serie, "descripcion": descripcion, "mediciones": mediciones,
             "tecnico_id": user["id"], "tecnico_nombre": user.get("name"), "tecnico_username": user.get("username"),
+            "solicitante_rol": user["role"],
             "ciudad": ciudad, "region_id": region["id"] if region else None,
             "region_nombre": region["nombre"] if region else None,
             "analista_id": None, "analista_nombre": None, "estado": "Creado",
@@ -311,7 +313,12 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
 
         warning = None
         try:
-            analyst = await db.users.find_one({"role": ANALISTA, "region": region["nombre"]}, {"_id": 0, "password_hash": 0}) if region else None
+            if user["role"] == LIDER:
+                # Tickets de líderes: se asignan al administrador (el primero registrado si hay varios)
+                admins = await db.users.find({"role": ADMIN}, {"_id": 0, "password_hash": 0}).sort("created_at", 1).to_list(1)
+                analyst = admins[0] if admins else None
+            else:
+                analyst = await db.users.find_one({"role": ANALISTA, "region": region["nombre"]}, {"_id": 0, "password_hash": 0}) if region else None
             if analyst:
                 upd = {"analista_id": analyst["id"], "analista_nombre": analyst.get("name"), "estado": "Asignado", "updated_at": _now()}
                 await db.service_tickets.update_one({"id": tid}, {"$set": upd})
@@ -337,8 +344,8 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
             "perms": {
                 "locked": not abierto,
                 "can_change_state": abierto and role in (ADMIN, ANALISTA),
-                "can_respond": abierto and role == ANALISTA and t.get("analista_id") == uid,
-                "can_chat": abierto and role != ADMIN and uid in (t.get("tecnico_id"), t.get("analista_id")),
+                "can_respond": abierto and role in (ANALISTA, ADMIN) and t.get("analista_id") == uid,
+                "can_chat": abierto and uid in (t.get("tecnico_id"), t.get("analista_id")),
                 "can_reassign": abierto and role == ADMIN,
             },
         })
@@ -380,9 +387,11 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
 
     @r.put("/tickets/{tid}/respuesta")
     async def save_response(tid: str, payload: RespuestaIn, user: dict = Depends(ts_user)):
-        if user["role"] != ANALISTA:
+        if user["role"] not in (ANALISTA, ADMIN):
             raise HTTPException(status_code=403, detail="Solo el analista asignado puede registrar la respuesta técnica")
         t = await _get_ticket(tid, user)
+        if t.get("analista_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Solo el responsable asignado puede registrar la respuesta técnica")
         _ensure_open(t)
         links = list(dict.fromkeys(l.strip() for l in payload.links if l and l.strip()))
         for link in links:
@@ -429,8 +438,8 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
     @r.post("/tickets/{tid}/mensajes")
     async def post_message(tid: str, payload: MensajeIn, user: dict = Depends(ts_user)):
         t = await _get_ticket(tid, user)
-        if user["role"] == ADMIN or user["id"] not in (t.get("tecnico_id"), t.get("analista_id")):
-            raise HTTPException(status_code=403, detail="Solo el técnico solicitante y el analista asignado pueden escribir")
+        if user["id"] not in (t.get("tecnico_id"), t.get("analista_id")):
+            raise HTTPException(status_code=403, detail="Solo el solicitante y el responsable asignado pueden escribir")
         if t["estado"] == CERRADO:
             raise HTTPException(status_code=400, detail="El ticket está cerrado; no se permiten nuevos mensajes")
         texto = payload.texto.strip()

@@ -65,7 +65,7 @@ const RequireAccess = ({ resource, children }) => {
   return children;
 };
 
-const TS_ROLES = ["tecnico", "analista_tecnico", "admin"];
+const TS_ROLES = ["tecnico", "lider", "analista_tecnico", "admin"];
 const RequireTicketRole = ({ children }) => {
   const { user } = useAuth();
   if (!TS_ROLES.includes(user?.role)) return <Navigate to="/" replace />;

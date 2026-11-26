@@ -24,8 +24,8 @@ export const TicketFilters = ({ filters, setFilters, options, role }) => {
   const set = (k) => (v) => setFilters((f) => ({ ...f, [k]: v }));
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end" data-testid="ts-filters">
-      {role !== "tecnico" && <Pick label="Técnico" value={filters.tecnico_id} onChange={set("tecnico_id")} options={options.tecnicos || []} testId="ts-filter-tecnico" />}
-      {role !== "analista_tecnico" && <Pick label="Analista técnico" value={filters.analista_id} onChange={set("analista_id")} options={options.analistas || []} testId="ts-filter-analista" />}
+      {!["tecnico", "lider"].includes(role) && <Pick label="Solicitante" value={filters.tecnico_id} onChange={set("tecnico_id")} options={options.tecnicos || []} testId="ts-filter-tecnico" />}
+      {role !== "analista_tecnico" && <Pick label="Responsable" value={filters.analista_id} onChange={set("analista_id")} options={options.analistas || []} testId="ts-filter-analista" />}
       <Pick label="Estado" value={filters.estado} onChange={set("estado")} options={ESTADOS.map((e) => ({ id: e, name: e }))} testId="ts-filter-estado" />
       <div className="space-y-1">
         <Label className="text-[11px] uppercase tracking-wider text-neutral-500">Desde</Label>

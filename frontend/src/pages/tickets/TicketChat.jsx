@@ -42,12 +42,13 @@ export const TicketChat = ({ ticket, onSent }) => {
       <div ref={box} className="flex-1 min-h-[200px] max-h-[420px] overflow-y-auto space-y-3 pr-1" data-testid="ts-chat-messages">
         {msgs.length === 0 && <div className="text-xs text-neutral-400 text-center py-8">Aún no hay mensajes.</div>}
         {msgs.map((m) => {
-          const analyst = m.role === "analista_tecnico";
+          const analyst = m.user_id === ticket.analista_id || m.role === "analista_tecnico";
+          const roleLabel = analyst ? (m.role === "admin" ? "Administrador" : "Analista") : (m.role === "lider" ? "Líder" : "Técnico");
           return (
             <div key={m.id} className={`flex ${analyst ? "justify-end" : "justify-start"}`} data-testid="ts-chat-message">
               <div className={`max-w-[85%] rounded-lg px-3 py-2 ${analyst ? "bg-[#0033A0] text-white" : "bg-neutral-100 text-neutral-900"}`}>
                 <div className={`text-[11px] font-semibold ${analyst ? "text-white/80" : "text-neutral-500"}`}>
-                  {m.user_name} · {analyst ? "Analista" : "Técnico"}
+                  {m.user_name} · {roleLabel}
                 </div>
                 <div className="text-sm whitespace-pre-wrap break-words">{m.texto}</div>
                 <div className={`text-[10px] mt-1 ${analyst ? "text-white/60" : "text-neutral-400"}`}>{fmtDT(m.created_at)}</div>

@@ -54,7 +54,7 @@ export default function TicketsLayout() {
             </div>
           </Link>
           <div className="flex-1" />
-          {user?.role === "tecnico" && (
+          {["tecnico", "lider"].includes(user?.role) && (
             <Button size="sm" onClick={() => setOpenNew(true)} className="gap-1.5 bg-[#0033A0] hover:bg-[#002a85]" data-testid="ts-new-ticket-btn">
               <Plus className="w-4 h-4" /> Nuevo ticket
             </Button>
@@ -81,7 +81,7 @@ export default function TicketsLayout() {
         )}
         <Outlet context={{ data, loading, reload }} />
       </main>
-      {user?.role === "tecnico" && (
+      {["tecnico", "lider"].includes(user?.role) && (
         <NewTicketDialog open={openNew} onOpenChange={setOpenNew} maxMb={data.max_mb}
           onCreated={(t) => { reload(); navigate(`/tickets/t/${t.id}`); }} />
       )}

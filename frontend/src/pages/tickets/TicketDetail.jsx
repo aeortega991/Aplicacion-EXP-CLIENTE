@@ -28,9 +28,9 @@ const TicketInfo = ({ t }) => (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
       <Field label="Ticket" testId="ts-info-numero">{t.numero}</Field>
       <Field label="Estado"><StatusBadge estado={t.estado} testId="ts-info-estado" /></Field>
-      <Field label="Técnico solicitante" testId="ts-info-tecnico">{t.tecnico_nombre}</Field>
+      <Field label={t.solicitante_rol === "lider" ? "Líder solicitante" : "Técnico solicitante"} testId="ts-info-tecnico">{t.tecnico_nombre}</Field>
       <Field label="Ciudad / Región" testId="ts-info-ciudad">{`${t.ciudad || "—"} / ${t.region_nombre || "—"}`}</Field>
-      <Field label="Analista asignado" testId="ts-info-analista">{t.analista_nombre || "Sin asignar"}</Field>
+      <Field label={t.solicitante_rol === "lider" ? "Responsable asignado" : "Analista asignado"} testId="ts-info-analista">{t.analista_nombre || "Sin asignar"}</Field>
       <Field label="Creación">{fmtDT(t.created_at)}</Field>
       <Field label="Modelo" testId="ts-info-modelo">{t.modelo}</Field>
       <Field label="Serie" testId="ts-info-serie">{t.serie}</Field>

@@ -5,7 +5,7 @@ import { Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { StatusBadge, fmtDT } from "./estados";
 
 const PAGE = 10;
-const COLS = ["Ticket", "Creación", "Técnico", "Ciudad", "Región", "Analista técnico", "Modelo", "Serie", "Estado", "Últ. actualización", "Acción"];
+const COLS = ["Ticket", "Creación", "Solicitante", "Ciudad", "Región", "Responsable", "Modelo", "Serie", "Estado", "Últ. actualización", "Acción"];
 
 export default function TicketsList() {
   const { data, loading } = useOutletContext();
