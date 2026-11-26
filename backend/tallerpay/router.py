@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from .catalogo_act import create_catalogo_act_router
+from .promociones import create_promotions_router
 from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, num_text, read_rows,
                      to_date, to_number, upper)
 
@@ -99,7 +100,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if resource is None:
             raise HTTPException(status_code=404, detail="Sección no encontrada")
         await require_access(resource, user)
-        ready = section in ("talleres", "tarifarios", "codificador")
+        ready = section in ("talleres", "tarifarios", "codificador", "promociones")
         return {"section": section, "ready": ready,
                 "message": "Disponible" if ready else "Funcionalidad pendiente de implementación"}
 
@@ -114,9 +115,12 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         await db.tp_tariffs.create_index("id", unique=True)
         await db.tp_tariff_files.create_index([("taller_id", 1), ("is_deleted", 1)])
         await _catalogo_startup()
+        await _promociones_startup()
 
     _catalogo_router, _catalogo_startup = create_catalogo_act_router(db, get_current_user, effective_perms)
     router.include_router(_catalogo_router)
+    _promociones_router, _promociones_startup = create_promotions_router(db, get_current_user, effective_perms)
+    router.include_router(_promociones_router)
     router.startup = startup
 
     # ------------------------------------------------------------------ helpers
