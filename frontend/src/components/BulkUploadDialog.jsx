@@ -38,7 +38,7 @@ export default function BulkUploadDialog({ templateUrl, importUrl, title = "Carg
       form.append("file", file);
       const r = await api.post(importUrl, form, { headers: { "Content-Type": "multipart/form-data" } });
       setResult(r.data);
-      if (r.data.inserted > 0 || r.data.updated > 0) toast.success(`${r.data.inserted} registros importados${r.data.updated ? ` · ${r.data.updated} actualizados` : ""}`);
+      if (r.data.inserted > 0 || r.data.updated > 0) toast.success(r.data.updated !== undefined ? `${r.data.inserted} nuevo(s) · ${r.data.updated} actualizado(s)` : `${r.data.inserted} registro(s) importado(s)`);
       else toast.warning("No se importó ningún registro");
       onDone && onDone();
     } catch (err) {
@@ -83,7 +83,9 @@ export default function BulkUploadDialog({ templateUrl, importUrl, title = "Carg
               <div className={`rounded-lg border p-4 text-sm ${result.inserted > 0 || result.updated > 0 ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`} data-testid="bulk-result">
                 <div className="flex items-center gap-2 font-medium">
                   {result.inserted > 0 || result.updated > 0 ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-amber-600" />}
-                  {result.inserted} de {result.total_filas} filas importadas
+                  {result.updated !== undefined
+                    ? `${result.inserted + result.updated} de ${result.total_filas} filas procesadas (${result.inserted} nueva(s), ${result.updated} actualizada(s))`
+                    : `${result.inserted} de ${result.total_filas} filas importadas`}
                 </div>
                 {result.updated > 0 && <div className="mt-1 text-xs text-emerald-700" data-testid="bulk-updated">{result.updated} registro(s) existente(s) actualizado(s)</div>}
                 {result.duplicates > 0 && <div className="mt-1 text-xs text-amber-700" data-testid="bulk-duplicates">{result.duplicates} duplicado(s) omitido(s)</div>}

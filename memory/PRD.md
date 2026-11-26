@@ -125,3 +125,13 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - **Bodega Central (Nov 2026)**: bodega `es_central` (ciudad "CENTRAL") creada al iniciar; toda herramienta nueva (individual, carga masiva, seed de prueba) ingresa con asignación Vigente a bodega (`source: "ingreso"`). Traspasos: siempre visible como origen/destino aunque se filtre por ciudad. Asignar a técnico desde la Central sigue funcionando.
 - **Asignar (Nov 2026)**: flujo Ciudad → Bodega origen (de la ciudad, sin Central) → herramientas disponibles de esa bodega (búsqueda + seleccionar todo) → técnico activo de la ciudad → confirmar. Backend `_assign_from_warehouse_to_tech` (requiere `source_warehouse_id`; valida ciudad técnico=bodega, disponibilidad, repetidos; retiro atómico con reversión; índice único `uniq_tool_vigente` = una ubicación vigente por herramienta). Acta única con código AS-AAAA-000001 (bodega origen, ciudad, responsable, cantidad); si falla el PDF se regenera al descargar. "Devolver" desde la tabla regresa la herramienta a su bodega de origen.
 - **Permisos (Nov 2026)**: nuevos recursos `tickets`, `ts_dashboard`, `ts_tablero`, `ts_listado` (solo aplican a técnico/líder/analista: `roles` en el recurso, "—" en la matriz) y `doc_nueva`, `doc_recibidas`, `doc_enviadas`. Validados en backend (ts_user, documents `_require_sub`) y frontend (hub, pestañas, rutas).
+
+## Pago a talleres — Fase A (2026-11-26)
+- Backend `backend/tallerpay/router.py` + `common.py` (`/api/tallerpay/*`). Colecciones: `tp_workshops` (codigo_sap único), `tp_tariffs` (único taller+linea+peso), `tp_tariff_files` (metadatos; binario en Emergent Object Storage, soft delete).
+- Talleres tercerizados: crear/editar/desactivar-reactivar (con motivo e historial, sin borrar), importación Excel upsert por código SAP (celdas vacías conservan el valor actual; ceros iniciales de RUC/teléfono restaurados; no permite quitar una línea con tarifas).
+- Tarifarios: por taller + línea (blanca/cafe) + peso de resolución → valor USD, vigente desde; CRUD + importación Excel upsert. Taller inactivo = solo consulta (backend lo bloquea).
+- Archivos: tarifario contractual PDF/JPG/PNG/WEBP ≤10 MB por taller (general/línea).
+- Permisos: solo admin/coordinador/líder; editar según matriz `tp_talleres`/`tp_tarifarios` (por defecto solo admin edita; coordinador/líder ven en modo consulta).
+- Frontend: `pages/tallerpay/TalleresPage.jsx`, `TarifariosPage.jsx`, `constants.js`; `BulkUploadDialog` muestra actualizados.
+- Pruebas: `cd backend && python -m pytest tests/test_tallerpay_phase_a.py -n 0` (26/26) y `test_tallerpay_access.py`.
+- Siguiente: Codificador ACT (resoluciones y pesos), Promociones, Importación SAP, Liquidaciones, Historial, Dashboard.

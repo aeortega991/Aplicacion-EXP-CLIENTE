@@ -22,3 +22,6 @@ La integración inicial añade el módulo **Pago a talleres** con el submenú **
 4. Revisar funcionamiento de los seis módulos actuales antes de fusionar.
 
 La Fase 1 no implementa cálculo monetario, carga SAP, tarifas ni reportes Excel.
+
+## Fase A (implementada)
+Talleres tercerizados (CRUD, desactivar, importación Excel por código SAP), tarifarios por taller + línea + peso de resolución (CRUD + Excel) y archivos del tarifario contractual (PDF/imagen). Ver `memory/PRD.md`.

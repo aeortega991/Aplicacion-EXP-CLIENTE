@@ -113,7 +113,7 @@ function FilesCard({ workshop, canEdit }) {
     <section className="rounded-lg border border-neutral-200 bg-white p-5 space-y-4" data-testid="tariff-files-card">
       <div className="flex items-center gap-2"><Paperclip className="w-4 h-4 text-red-600" /><h2 className="font-semibold">Tarifario contractual</h2>
         <span className="text-xs text-neutral-500">PDF o imagen · máx. 10 MB</span></div>
-      {canEdit && workshop.activo && (
+      {canEdit && (
         <div className="flex flex-wrap items-end gap-3 rounded-md bg-neutral-50 border border-dashed border-neutral-300 p-3">
           <div className="space-y-1"><Label className="text-xs">Aplica a</Label>
             <Select value={linea} onValueChange={setLinea}>
@@ -144,7 +144,7 @@ function FilesCard({ workshop, canEdit }) {
                 <div className="text-xs text-neutral-500">{lineaLabel(f.linea)} · {fmtSize(f.size)} · {new Date(f.created_at).toLocaleDateString("es-EC")} · {f.uploaded_by?.name}{f.descripcion ? ` · ${f.descripcion}` : ""}</div>
               </div>
               <Button variant="ghost" size="sm" onClick={() => view(f)} title="Ver" data-testid={`file-view-${f.id}`}><Eye className="w-4 h-4" /></Button>
-              {canEdit && <Button variant="ghost" size="sm" onClick={() => setDel(f)} title="Eliminar" data-testid={`file-delete-${f.id}`}><Trash2 className="w-4 h-4 text-red-600" /></Button>}
+              {canEdit && workshop.activo && <Button variant="ghost" size="sm" onClick={() => setDel(f)} title="Eliminar" data-testid={`file-delete-${f.id}`}><Trash2 className="w-4 h-4 text-red-600" /></Button>}
             </li>
           ))}
         </ul>
@@ -163,7 +163,7 @@ function FilesCard({ workshop, canEdit }) {
 
 export default function TarifariosPage() {
   const { can } = useAuth();
-  const canEdit = can("tp_tarifarios", "edit");
+  const canEditAny = can("tp_tarifarios", "edit");
   const [params, setParams] = useSearchParams();
   const [workshops, setWorkshops] = useState([]);
   const [tariffs, setTariffs] = useState([]);
@@ -172,6 +172,7 @@ export default function TarifariosPage() {
   const [del, setDel] = useState(null);
   const tallerId = params.get("taller") || "";
   const workshop = useMemo(() => workshops.find((w) => w.id === tallerId), [workshops, tallerId]);
+  const canEdit = canEditAny && !!workshop?.activo;
 
   const loadWorkshops = useCallback(() => {
     api.get("/tallerpay/talleres").then((r) => setWorkshops(r.data.items)).catch((e) => toast.error(formatApiError(e)));
@@ -205,7 +206,7 @@ export default function TarifariosPage() {
           <h1 className="text-3xl font-bold tracking-tight">Tarifarios</h1>
           <p className="text-sm text-neutral-500 mt-1">Valor a pagar por taller, línea de producto y peso de resolución.</p>
         </div>
-        {canEdit && (
+        {canEditAny && (
           <BulkUploadDialog title="Importar tarifas" templateUrl="/tallerpay/tarifarios/template" importUrl="/tallerpay/tarifarios/import"
             templateName="plantilla_tarifarios.xlsx" onDone={refresh} testId="tariff-import-button"
             description="Una fila por código SAP + línea (blanca/cafe) + peso. Si la combinación ya existe, se actualiza el valor." />
@@ -243,7 +244,7 @@ export default function TarifariosPage() {
                   </button>
                 ))}
               </div>
-              {canEdit && workshop.activo && (
+              {canEdit && (
                 <Button size="sm" onClick={() => setEdit({})} className="mb-2 bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="tariff-add-button"><Plus className="w-4 h-4" /> Nueva tarifa</Button>
               )}
             </div>

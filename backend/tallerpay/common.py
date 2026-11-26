@@ -25,6 +25,13 @@ def upper(v) -> str:
     return clean(v).upper()
 
 
+def num_text(v) -> str:
+    """Texto de una celda que puede venir como número de Excel (1790012345001.0 -> '1790012345001')."""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return clean(v)
+
+
 def norm_sap(v) -> str:
     """Código SAP: sin espacios, mayúsculas; los números de Excel (1001.0) se vuelven '1001'."""
     if isinstance(v, float) and v.is_integer():
@@ -75,6 +82,10 @@ def build_template(headers: list, example: list, filename: str) -> StreamingResp
     ws.title = "Plantilla"
     ws.append(headers)
     ws.append(example)
+    for col in range(1, len(headers) + 1):  # celdas de texto: conserva ceros iniciales (RUC, teléfono, SAP)
+        for row in range(2, 502):
+            if not isinstance(example[col - 1], (int, float)):
+                ws.cell(row=row, column=col).number_format = "@"
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="0033A0")

@@ -1,0 +1,43 @@
+{
+  "summary": "Tested Pago a talleres Fase A end to end. Backend: 26 pytest cases covering workshop CRUD, normalization and validation, tariff CRUD and uniqueness, deactivation, both Excel imports, attachments and role permissions. 25 passed and 1 failed: the workshop Excel import removes a línea that still has tariffs. UI as admin: the hub card, KPIs, search and estado filter work. So do create (SearchSelect ciudad, checkboxes), the duplicate SAP toast, edit, deactivate with motivo, tarifarios tabs, tariff add/duplicate/edit/delete, PDF upload/view/delete, the read-only note for an inactive taller and the workshop import dialog (shows the updated and duplicates counts). Coordinador and lider see the module read-only, with no add, import, edit, toggle, upload or delete buttons. Tesorero and gerente do not see the card and are redirected to /. Their API calls get 403. Granting tp_talleres edit to coordinador lets coordinador create, and tarifarios stays 403. The matrix was restored to default. Other hub modules all load.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/tallerpay/talleres/import", "issue": "Skips the rule that blocks removing a línea with tariffs, which PUT /talleres/{id} enforces. Re-importing SAP X with lineas='cafe' removes 'blanca' even though blanca tariffs exist, so those tariffs are left orphaned. Reproduced in test_import_workshop_bypasses_linea_guard."},
+      {"endpoint": "POST /api/tallerpay/talleres/import", "issue": "Updating an existing SAP overwrites optional fields (ruc, ciudad, direccion, contacto, telefono, correo) with blanks when the row's cells are empty. Reproduced: the UI import wiped the RUC 1790012345001 of an existing workshop. Also, empty lineas on an existing cafe-only workshop silently becomes blanca+cafe. Consider updating only non-empty cells for existing rows."},
+      {"endpoint": "POST /api/tallerpay/talleres/import", "issue": "Numeric Excel cells for telefono and ruc lose their leading zero (0991234567 becomes 991234567; seed workshop 100245 already shows telefono 991234567). A 10-digit cédula starting with 0, typed as a number, becomes 9 digits and is rejected. Suggest zero-padding or forcing the template cells to text."},
+      {"endpoint": "PUT/DELETE /api/tallerpay/tarifarios/{id}, POST /talleres/{id}/archivos", "issue": "These still work for an INACTIVE taller (each returned 200), while the UI note says 'Taller inactivo · solo consulta'. Either block them in the backend or reword the note."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TarifariosPage tariff rows", "issue": "Edit and delete buttons (tariff-edit-*, tariff-delete-*) still show for an inactive taller, which contradicts the 'solo consulta' note. Only add and upload are hidden.", "selector": "[data-testid^='tariff-edit-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tariff dialog", "issues": ["'Vigente desde' uses the browser's native <input type=date> instead of the shadcn Calendar/Popover."]},
+      {"screen": "BulkUploadDialog result", "issues": ["Heading reads '1 de 3 filas importadas' even when 1 row was also updated, so it looks like only 1 row was processed. The toast says '1 registros importados' (wrong plural)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_tallerpay_phase_a.py", "/app/test_reports/pytest/tallerpay_phase_a.xml"],
+  "action_items": [
+    "In import_workshops, apply the same removed-línea-with-tariffs check as update_workshop and report it as a row error",
+    "In import_workshops, for existing SAPs, do not overwrite optional fields with empty cells (and do not default lineas for existing rows)",
+    "Keep leading zeros for numeric telefono and ruc cells from Excel",
+    "Decide the rules for inactive talleres: block tariff edit/delete and file upload in the backend, or hide edit/delete in the UI and change the note",
+    "Optional: replace the native date input with the shadcn calendar; fix the import result wording"
+  ],
+  "critical_code_review_comments": [
+    "router.py import_workshops runs a raw upsert $set of every field and bypasses the business rules enforced in update_workshop",
+    "update_tariff does not check w['activo'], which is inconsistent with create_tariff",
+    "The import endpoints have no file size limit (await file.read() with no cap)",
+    "The hub card links to /pago-talleres (dashboard placeholder), not /pago-talleres/talleres. That is acceptable, but noting it.",
+    "File view opens window.open('') and then navigates to a blob URL. In headless the popup stayed about:blank, so I could not confirm the preview visually. The GET /archivos/{id} bytes were verified in the API test."
+  ],
+  "updated_files": ["/app/backend/tests/test_tallerpay_phase_a.py"],
+  "success_rate": {"backend": "96% (25/26)", "frontend": "100% of tested flows functional; 1 low UI inconsistency"},
+  "seed_data_creation": "Created only TEST* workshops (TEST<run>A/B/C and TEST<run>AX via pytest; TESTUI01, TESTUI02 and TESTINACT1 via UI/script), with their tariffs and files. All were hard-deleted afterwards by codigo_sap. Coordinador's role_permissions doc was created during the grant test and deleted afterwards; before the test there was no stored doc, so it is back to default. Main agent data (100245, 200300) was not modified.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && python -m pytest tests/test_tallerpay_phase_a.py -n 0 (it is order-dependent, so do not run it with xdist). The test cleans up via Mongo by SAP codes from the run. test_import_workshop_bypasses_linea_guard is expected to fail until the import fix lands. Login testids: login-username-input, login-password-input, login-submit-button. Valid city example: AMBATO. /app/memory/test_credentials.md is missing; I used the credentials from the briefing. No tecnico credentials were provided, so the tecnico role was not tested."
+}

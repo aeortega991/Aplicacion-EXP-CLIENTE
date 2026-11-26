@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
-from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, read_rows,
+from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, num_text, read_rows,
                      to_date, to_number, upper)
 
 logger = logging.getLogger("tallerpay")
@@ -136,9 +136,9 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         correo = clean(p.get("correo")).lower()
         if correo and not EMAIL_RE.match(correo):
             raise ValueError(f"Correo inválido: {correo}")
-        ruc = clean(p.get("ruc"))
-        if isinstance(p.get("ruc"), float) and p["ruc"].is_integer():
-            ruc = str(int(p["ruc"]))
+        ruc = num_text(p.get("ruc"))
+        if ruc.isdigit() and len(ruc) in (9, 12):  # Excel numérico pierde el 0 inicial
+            ruc = "0" + ruc
         if ruc and (not ruc.isdigit() or len(ruc) not in (10, 13)):
             raise ValueError("El RUC/cédula debe tener 10 o 13 dígitos")
         raw = p.get("lineas")
@@ -147,9 +147,9 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         lineas = sorted({norm_linea(x) for x in (raw or []) if norm_linea(x)})
         if not lineas:
             raise ValueError("Indique al menos una línea (blanca, cafe)")
-        telefono = clean(p.get("telefono"))
-        if isinstance(p.get("telefono"), float) and p["telefono"].is_integer():
-            telefono = str(int(p["telefono"]))
+        telefono = num_text(p.get("telefono"))
+        if isinstance(p.get("telefono"), (int, float)) and telefono.isdigit() and len(telefono) in (8, 9):
+            telefono = "0" + telefono
         return {"codigo_sap": sap, "nombre": nombre, "ruc": ruc, "ciudad": await valid_city(p.get("ciudad")),
                 "direccion": clean(p.get("direccion")), "contacto": clean(p.get("contacto")),
                 "telefono": telefono, "correo": correo, "lineas": lineas}
@@ -159,6 +159,10 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if not w:
             raise HTTPException(status_code=404, detail="Taller no encontrado")
         return w
+
+    def ensure_active(w: dict):
+        if not w.get("activo"):
+            raise HTTPException(status_code=400, detail="El taller está inactivo; reactívelo para modificar su tarifario")
 
     def tariff_fields(p: dict, w: dict) -> dict:
         linea = norm_linea(p.get("linea"))
@@ -231,11 +235,19 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
             raise HTTPException(status_code=400, detail=f"Faltan columnas obligatorias: {', '.join(missing)}")
         inserted = updated = duplicates = 0
         errors, seen = [], set()
+        existing = {w["codigo_sap"]: w for w in await db.tp_workshops.find({}, {"_id": 0}).to_list(5000)}
         for idx, rec in rows:
-            if not clean(rec.get("lineas")):
+            prev = existing.get(norm_sap(rec.get("codigo_sap")))
+            if prev:  # actualización: las celdas vacías conservan el valor actual
+                rec = {**{k: prev.get(k) for k in WORKSHOP_HEADERS},
+                       **{k: v for k, v in rec.items() if clean(v) != ""}}
+            elif not clean(rec.get("lineas")):
                 rec["lineas"] = "blanca,cafe"
             try:
                 fields = await workshop_fields(rec)
+                removed = set(prev.get("lineas", [])) - set(fields["lineas"]) if prev else set()
+                if removed and await db.tp_tariffs.count_documents({"taller_id": prev["id"], "linea": {"$in": list(removed)}}):
+                    raise ValueError(f"no se puede quitar {', '.join(LINEAS[x] for x in sorted(removed))}: tiene tarifas registradas")
             except ValueError as e:
                 errors.append(f"Fila {idx}: {e}")
                 continue
@@ -317,8 +329,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     async def create_tariff(payload: TariffIn, user: dict = Depends(get_current_user)):
         await require_access("tp_tarifarios", user, edit=True)
         w = await get_workshop(payload.taller_id)
-        if not w.get("activo"):
-            raise HTTPException(status_code=400, detail="El taller está inactivo; reactívelo para registrar tarifas")
+        ensure_active(w)
         try:
             fields = tariff_fields(payload.model_dump(), w)
         except ValueError as e:
@@ -392,6 +403,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if payload.taller_id != t["taller_id"]:
             raise HTTPException(status_code=400, detail="No se puede cambiar el taller de una tarifa")
         w = await get_workshop(t["taller_id"])
+        ensure_active(w)
         try:
             fields = tariff_fields(payload.model_dump(), w)
         except ValueError as e:
@@ -405,9 +417,11 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     @router.delete("/tarifarios/{tid}")
     async def delete_tariff(tid: str, user: dict = Depends(get_current_user)):
         await require_access("tp_tarifarios", user, edit=True)
-        res = await db.tp_tariffs.delete_one({"id": tid})
-        if not res.deleted_count:
+        t = await db.tp_tariffs.find_one({"id": tid}, {"_id": 0, "taller_id": 1})
+        if not t:
             raise HTTPException(status_code=404, detail="Tarifa no encontrada")
+        ensure_active(await get_workshop(t["taller_id"]))
+        await db.tp_tariffs.delete_one({"id": tid})
         return {"ok": True}
 
     # ------------------------------------------------------------------ archivos del tarifario contractual
@@ -424,6 +438,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
                           descripcion: str = Form(""), user: dict = Depends(get_current_user)):
         await require_access("tp_tarifarios", user, edit=True)
         w = await get_workshop(wid)
+        ensure_active(w)
         ln = "general" if clean(linea).lower() in ("", "general") else norm_linea(linea)
         if not ln:
             raise HTTPException(status_code=400, detail="Línea inválida (general, blanca o cafe)")
@@ -467,6 +482,10 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     @router.delete("/archivos/{fid}")
     async def delete_file(fid: str, user: dict = Depends(get_current_user)):
         await require_access("tp_tarifarios", user, edit=True)
+        f = await db.tp_tariff_files.find_one({"id": fid, "is_deleted": False}, {"_id": 0, "taller_id": 1})
+        if not f:
+            raise HTTPException(status_code=404, detail="Archivo no encontrado")
+        ensure_active(await get_workshop(f["taller_id"]))
         res = await db.tp_tariff_files.update_one({"id": fid, "is_deleted": False},
                                                   {"$set": {"is_deleted": True, "deleted_at": now_iso(), "deleted_by": audit(user)}})
         if not res.matched_count:
