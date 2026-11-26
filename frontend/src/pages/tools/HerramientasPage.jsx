@@ -90,7 +90,8 @@ export default function HerramientasPage() {
     try {
       const { data } = await api.post("/tools/tools/bulk-deactivate", { tool_ids: selected, action: bulkConfirm.action });
       const label = bulkConfirm.action === "deactivate" ? "dadas de baja" : "reactivadas";
-      const extra = data.assignments_cerradas > 0 ? ` · ${data.assignments_cerradas} asignaciones cerradas` : "";
+      const extra = (data.assignments_cerradas > 0 ? ` · ${data.assignments_cerradas} asignaciones cerradas` : "")
+        + (data.enviadas_a_central > 0 ? ` · ${data.enviadas_a_central} ingresadas a Bodega Central` : "");
       toast.success(`✓ ${data.modified} herramientas ${label}${extra}`);
       setSelected([]);
       setBulkConfirm(null);

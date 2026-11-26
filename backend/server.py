@@ -2159,9 +2159,12 @@ async def update_tool(tool_id: str, payload: ToolUpdate, user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="Estado inválido")
     if not update:
         raise HTTPException(status_code=400, detail="Sin cambios")
+    prev = await db.tools.find_one({"id": tool_id}, {"_id": 0, "estado": 1})
     res = await db.tools.update_one({"id": tool_id}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Herramienta no encontrada")
+    if update.get("estado") == "Activa" and (prev or {}).get("estado") == "Inactiva":
+        await _reactivate_to_central([tool_id], user)
     # If deactivated, auto-close any active assignments
     if update.get("estado") == "Inactiva":
         today = datetime.now(timezone.utc).date().isoformat()
@@ -2841,7 +2844,7 @@ async def _central_warehouse() -> dict:
     return doc
 
 
-async def _place_in_central(tool_ids: List[str], user: dict) -> dict:
+async def _place_in_central(tool_ids: List[str], user: dict, source: str = "ingreso") -> dict:
     """Registra el ingreso de herramientas nuevas en la Bodega Central (asignación Vigente a bodega)."""
     central = await _central_warehouse()
     if not tool_ids:
@@ -2859,9 +2862,18 @@ async def _place_in_central(tool_ids: List[str], user: dict) -> dict:
         "fecha_devolucion": None,
         "estado": "Vigente",
         "_created_by": user.get("username"),
-        "source": "ingreso",
+        "source": source,
     } for tid in tool_ids])
     return central
+
+
+async def _reactivate_to_central(tool_ids: List[str], user: dict) -> int:
+    """Herramientas reactivadas (dadas de baja antes) vuelven a la Bodega Central si no tienen ubicación vigente."""
+    ubicadas = set(await db.tool_assignments.distinct("tool_id", {"tool_id": {"$in": tool_ids}, "estado": "Vigente"}))
+    pendientes = [t for t in tool_ids if t not in ubicadas]
+    if pendientes:
+        await _place_in_central(pendientes, user, source="reactivacion")
+    return len(pendientes)
 
 
 async def _get_or_create_warehouse_for_city(ciudad: str) -> Optional[dict]:
@@ -3311,8 +3323,12 @@ async def bulk_deactivate_tools(payload: BulkDeactivateIn, user: dict = Depends(
     if action not in ("deactivate", "reactivate"):
         raise HTTPException(status_code=400, detail="Acción inválida")
     new_estado = "Inactiva" if action == "deactivate" else "Activa"
+    reactivar = []
+    if new_estado == "Activa":
+        reactivar = [t["id"] for t in await db.tools.find({"id": {"$in": payload.tool_ids}, "estado": "Inactiva"}, {"_id": 0, "id": 1}).to_list(5000)]
     res = await db.tools.update_many({"id": {"$in": payload.tool_ids}}, {"$set": {"estado": new_estado}})
     closed = 0
+    en_central = await _reactivate_to_central(reactivar, user) if reactivar else 0
     if new_estado == "Inactiva":
         today = datetime.now(timezone.utc).date().isoformat()
         r2 = await db.tool_assignments.update_many(
@@ -3326,6 +3342,7 @@ async def bulk_deactivate_tools(payload: BulkDeactivateIn, user: dict = Depends(
         "modified": res.modified_count,
         "estado_final": new_estado,
         "assignments_cerradas": closed,
+        "enviadas_a_central": en_central,
     }
 
 def _build_inventory_pdf(warehouse: dict, tools_at_wh: list, generated_by: str) -> bytes:

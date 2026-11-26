@@ -28,7 +28,7 @@ export default function BajasPage() {
     const newEstado = confirm.estado === "Activa" ? "Inactiva" : "Activa";
     try {
       await api.patch(`/tools/tools/${confirm.id}`, { estado: newEstado });
-      toast.success(newEstado === "Inactiva" ? "Herramienta dada de baja" : "Herramienta reactivada");
+      toast.success(newEstado === "Inactiva" ? "Herramienta dada de baja" : "Herramienta reactivada", { description: "Ingresada a la Bodega Central" });
       setConfirm(null);
       load();
     } catch (err) { toast.error(formatApiError(err)); }
