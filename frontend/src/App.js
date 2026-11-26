@@ -7,6 +7,8 @@ import SsoCallback from "@/pages/SsoCallback";
 import Hub from "@/pages/Hub";
 import AppLayout from "@/layouts/AppLayout";
 import ToolsLayout from "@/layouts/ToolsLayout";
+import TallerPayLayout from "@/layouts/TallerPayLayout";
+import TallerPayPage from "@/pages/tallerpay/TallerPayPage";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
@@ -62,6 +64,14 @@ const RequireAccess = ({ resource, children }) => {
   const { can, loading } = useAuth();
   if (loading) return <div className="p-10 text-sm text-muted-foreground">Cargando…</div>;
   if (!can(resource, "view")) return <Navigate to="/" replace />;
+  return children;
+};
+
+const TP_ROLES = ["lider", "coordinador", "admin"];
+const RequireTallerPayRole = ({ children }) => {
+  const { user, can, loading } = useAuth();
+  if (loading) return <div className="p-10 text-sm text-muted-foreground">Cargando…</div>;
+  if (!TP_ROLES.includes(user?.role) || !can("tallerpay", "view")) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -151,6 +161,16 @@ function App() {
             <Route path="enviadas" element={<RequireAccess resource="doc_enviadas"><EntregasList key="enviadas" scope="enviadas" /></RequireAccess>} />
             <Route path="todas" element={<AdminOnly><EntregasList key="todas" scope="todas" /></AdminOnly>} />
             <Route path="dashboard" element={<AdminOnly><DocsDashboard /></AdminOnly>} />
+          </Route>
+          <Route path="/pago-talleres" element={<Protected><RequireTallerPayRole><TallerPayLayout /></RequireTallerPayRole></Protected>}>
+            <Route index element={<RequireAccess resource="tp_dashboard"><TallerPayPage section="dashboard" /></RequireAccess>} />
+            <Route path="talleres" element={<RequireAccess resource="tp_talleres"><TallerPayPage section="talleres" /></RequireAccess>} />
+            <Route path="tarifarios" element={<RequireAccess resource="tp_tarifarios"><TallerPayPage section="tarifarios" /></RequireAccess>} />
+            <Route path="codificador" element={<RequireAccess resource="tp_codificador"><TallerPayPage section="codificador" /></RequireAccess>} />
+            <Route path="promociones" element={<RequireAccess resource="tp_promociones"><TallerPayPage section="promociones" /></RequireAccess>} />
+            <Route path="importacion" element={<RequireAccess resource="tp_importacion"><TallerPayPage section="importacion" /></RequireAccess>} />
+            <Route path="liquidaciones" element={<RequireAccess resource="tp_liquidaciones"><TallerPayPage section="liquidaciones" /></RequireAccess>} />
+            <Route path="historial" element={<RequireAccess resource="tp_historial"><TallerPayPage section="historial" /></RequireAccess>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
