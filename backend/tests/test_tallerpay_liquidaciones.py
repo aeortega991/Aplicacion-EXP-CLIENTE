@@ -1,7 +1,8 @@
 """Motor de liquidaciones: precedencia de tarifas y ausencia de vínculo técnico–taller."""
 import unittest
 
-from tallerpay.liquidaciones import create_line, summarize, km_value
+from tallerpay.liquidaciones import create_line, summarize, km_value, DraftIn, SpecialIn
+from tallerpay.catalogo_act import MatrixIn
 from tallerpay.productos import product_code
 
 
@@ -82,6 +83,20 @@ class SettlementTests(unittest.TestCase):
         for bad in ["-1", "nan", "no disponible"]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 km_value(bad)
+
+    def test_one_technician_per_liquidation(self):
+        payload = DraftIn(tecnico_codigo="8000000147", periodo="2026-10", kilometros={})
+        self.assertEqual(payload.tecnico_codigo, "8000000147")
+        self.assertFalse(hasattr(payload, "taller_id"))
+        self.assertFalse(hasattr(payload, "tecnicos"))
+
+    def test_tariff_belongs_to_technician(self):
+        tariff = MatrixIn(tecnico_codigo="8000000147", linea="blanca", nivel="SL", valor="13.00")
+        special = SpecialIn(tecnico_codigo="8000000147", linea="blanca",
+                            categoria_resolucion="INSTALACION NIVEL 1", valor="13.00")
+        self.assertEqual(tariff.tecnico_codigo, special.tecnico_codigo)
+        self.assertFalse(hasattr(tariff, "taller_id"))
+        self.assertFalse(hasattr(special, "taller_id"))
 
     def test_product_codes(self):
         self.assertEqual(product_code(456789.0), "456789")
