@@ -10,7 +10,8 @@ import ToolsLayout from "@/layouts/ToolsLayout";
 import TallerPayLayout from "@/layouts/TallerPayLayout";
 import TallerPayPage from "@/pages/tallerpay/TallerPayPage";
 import TalleresPage from "@/pages/tallerpay/TalleresPage";
-import TarifariosPage from "@/pages/tallerpay/TarifariosPage";
+import TarifarioMatrizPage from "@/pages/tallerpay/TarifarioMatrizPage";
+import CodificadorPage from "@/pages/tallerpay/CodificadorPage";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
@@ -167,8 +168,8 @@ function App() {
           <Route path="/pago-talleres" element={<Protected><RequireTallerPayRole><TallerPayLayout /></RequireTallerPayRole></Protected>}>
             <Route index element={<RequireAccess resource="tp_dashboard"><TallerPayPage section="dashboard" /></RequireAccess>} />
             <Route path="talleres" element={<RequireAccess resource="tp_talleres"><TalleresPage /></RequireAccess>} />
-            <Route path="tarifarios" element={<RequireAccess resource="tp_tarifarios"><TarifariosPage /></RequireAccess>} />
-            <Route path="codificador" element={<RequireAccess resource="tp_codificador"><TallerPayPage section="codificador" /></RequireAccess>} />
+            <Route path="tarifarios" element={<RequireAccess resource="tp_tarifarios"><TarifarioMatrizPage /></RequireAccess>} />
+            <Route path="codificador" element={<RequireAccess resource="tp_codificador"><CodificadorPage /></RequireAccess>} />
             <Route path="promociones" element={<RequireAccess resource="tp_promociones"><TallerPayPage section="promociones" /></RequireAccess>} />
             <Route path="importacion" element={<RequireAccess resource="tp_importacion"><TallerPayPage section="importacion" /></RequireAccess>} />
             <Route path="liquidaciones" element={<RequireAccess resource="tp_liquidaciones"><TallerPayPage section="liquidaciones" /></RequireAccess>} />
