@@ -68,12 +68,12 @@ export default function ImportacionSAPPage() {
   return <div className="p-4 sm:p-8 space-y-6" data-testid="tallerpay-importacion-sap">
     <div><p className="text-xs uppercase tracking-widest text-neutral-500">Pago a talleres</p>
       <h1 className="text-3xl font-bold">Importación SAP</h1>
-      <p className="text-sm text-neutral-500 mt-1">Carga directa de Excel XML SpreadsheetML exportado por SAP. Primero verifica, después importa a MongoDB.</p>
+      <p className="text-sm text-neutral-500 mt-1">Carga el XML original de SAP o el archivo Excel .xlsx convertido, con la misma validación y protección de duplicados.</p>
     </div>
     <section className="rounded-lg border bg-white p-5 space-y-4">
-      <h2 className="font-semibold">1. Seleccionar archivo XML de SAP</h2>
-      <p className="text-sm text-neutral-600">El sistema reconoce el encabezado de SAP, toma el asunto de B, ticket de C, fecha de solución de I, código ACT de X y técnico de U/V. Los registros existentes no se sobrescriben.</p>
-      <input type="file" accept=".xml,text/xml,application/xml" aria-label="Archivo XML SAP"
+      <h2 className="font-semibold">1. Seleccionar archivo SAP (.xml o .xlsx)</h2>
+      <p className="text-sm text-neutral-600">Ambos formatos conservan las columnas originales: asunto B, ticket C, fecha de solución I, código ACT X y técnico U/V. El archivo .xlsx debe conservar el orden de columnas de SAP. Los registros existentes no se sobrescriben.</p>
+      <input type="file" accept=".xml,.xlsx,text/xml,application/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Archivo SAP XML o XLSX"
         onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null);setResult(null)}}/>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" disabled={!file||busy} onClick={()=>upload("/tallerpay/sap/preview")}><Search className="w-4 h-4 mr-2"/>Verificar y previsualizar</Button>
