@@ -55,7 +55,7 @@ export default function HerramientasPage() {
         toast.success("Herramienta actualizada");
       } else {
         await api.post("/tools/tools", payload);
-        toast.success("Herramienta creada");
+        toast.success("Herramienta creada", { description: "Ingresada a la Bodega Central" });
       }
       setOpen(false);
       load();

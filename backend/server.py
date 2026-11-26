@@ -1929,6 +1929,7 @@ async def seed_admin_and_data():
 async def _startup():
     await seed_admin_and_data()
     await _seed_warehouses()
+    await _central_warehouse()
     await _seed_expenses_module()
     await _migrate_unify_tecnicos()
 
@@ -2113,9 +2114,10 @@ async def tools_bulk_import(file: UploadFile = File(...), user: dict = Depends(r
         try:
             await db.tools.insert_many(docs)
             inserted = len(docs)
+            await _place_in_central([d["id"] for d in docs], user)
         except Exception as e:
             errors.append(str(e))
-    return {"inserted": inserted, "errors": errors, "total_filas": len(rows) - 1}
+    return {"inserted": inserted, "errors": errors, "total_filas": len(rows) - 1, "bodega": CENTRAL_WAREHOUSE_NAME}
 
 
 
@@ -2137,6 +2139,8 @@ async def create_tool(payload: ToolIn, user: dict = Depends(get_current_user)):
     }
     await db.tools.insert_one(doc)
     doc.pop("_id", None)
+    central = await _place_in_central([doc["id"]], user)
+    doc["bodega"] = central.get("nombre")
     return doc
 
 @api.patch("/tools/tools/{tool_id}")
@@ -2653,6 +2657,52 @@ async def _seed_warehouses():
             "_created_at": datetime.now(timezone.utc).isoformat(),
         })
 
+CENTRAL_WAREHOUSE_NAME = "Bodega Central"
+CENTRAL_WAREHOUSE_CITY = "CENTRAL"
+
+
+async def _central_warehouse() -> dict:
+    """Bodega Central: recibe toda herramienta nueva (individual o carga masiva). Se crea una sola vez."""
+    wh = await db.tool_warehouses.find_one({"es_central": True}, {"_id": 0})
+    if wh:
+        return wh
+    doc = {
+        "id": str(uuid.uuid4()),
+        "nombre": CENTRAL_WAREHOUSE_NAME,
+        "ciudad": CENTRAL_WAREHOUSE_CITY,
+        "email": os.environ.get("WAREHOUSE_EMAIL") or None,
+        "es_central": True,
+        "_created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    res = await db.tool_warehouses.update_one({"es_central": True}, {"$setOnInsert": doc}, upsert=True)
+    if res.upserted_id is None:
+        return await db.tool_warehouses.find_one({"es_central": True}, {"_id": 0})
+    return doc
+
+
+async def _place_in_central(tool_ids: List[str], user: dict) -> dict:
+    """Registra el ingreso de herramientas nuevas en la Bodega Central (asignación Vigente a bodega)."""
+    central = await _central_warehouse()
+    if not tool_ids:
+        return central
+    today = datetime.now(timezone.utc).date().isoformat()
+    batch_id = str(uuid.uuid4())
+    await db.tool_assignments.insert_many([{
+        "id": str(uuid.uuid4()),
+        "tool_id": tid,
+        "technician_id": None,
+        "warehouse_id": central["id"],
+        "destination_type": "warehouse",
+        "batch_id": batch_id,
+        "fecha_asignacion": today,
+        "fecha_devolucion": None,
+        "estado": "Vigente",
+        "_created_by": user.get("username"),
+        "source": "ingreso",
+    } for tid in tool_ids])
+    return central
+
+
 async def _get_or_create_warehouse_for_city(ciudad: str) -> Optional[dict]:
     if not ciudad: return None
     ciudad = str(ciudad).strip()
@@ -2672,6 +2722,7 @@ async def _get_or_create_warehouse_for_city(ciudad: str) -> Optional[dict]:
 @api.get("/tools/warehouses")
 async def list_warehouses(user: dict = Depends(get_current_user)):
     docs = await db.tool_warehouses.find({}, {"_id": 0}).sort("ciudad", 1).to_list(500)
+    docs.sort(key=lambda w: 0 if w.get("es_central") else 1)  # Bodega Central primero
     return docs
 
 @api.get("/tools/warehouses/{warehouse_id}/tools")
@@ -2739,6 +2790,7 @@ async def seed_test_data(user: dict = Depends(require_admin)):
             "_seed": True,
         }
         await db.tools.insert_one(doc)
+        await _place_in_central([doc["id"]], user)
         tools_created.append(code)
 
     # 5 techs per city

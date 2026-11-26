@@ -21,8 +21,11 @@ function WarehouseCard({ wh, count, valor, onOpen }) {
         </div>
         <ChevronRight className="w-4 h-4 text-neutral-400 group-hover:text-red-600" />
       </div>
-      <div className="text-sm font-semibold">{wh.nombre}</div>
-      <div className="text-xs text-neutral-500 mt-0.5">{wh.ciudad}</div>
+      <div className="text-sm font-semibold flex items-center gap-2">
+        {wh.nombre}
+        {wh.es_central && <span className="text-[10px] font-semibold uppercase tracking-wider rounded bg-red-600 text-white px-1.5 py-0.5" data-testid="wh-central-badge">Ingreso</span>}
+      </div>
+      <div className="text-xs text-neutral-500 mt-0.5">{wh.es_central ? "Recibe todas las herramientas nuevas" : wh.ciudad}</div>
       <div className="mt-3 flex items-end justify-between">
         <div>
           <div className="text-2xl font-bold font-mono">{count}</div>
@@ -182,7 +185,7 @@ export default function BodegasPage() {
           <Warehouse className="w-7 h-7 text-red-600" /> Bodegas Internas
         </h1>
         <p className="text-sm text-neutral-500 mt-1">
-          Una bodega por ciudad. Selecciona una bodega para ver su inventario y exportarlo a PDF.
+          Bodega Central (ingreso de herramientas nuevas) y una bodega por ciudad. Selecciona una bodega para ver su inventario y exportarlo a PDF.
         </p>
       </div>
 

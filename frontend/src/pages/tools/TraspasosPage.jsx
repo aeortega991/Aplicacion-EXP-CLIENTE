@@ -50,19 +50,20 @@ export default function TraspasosPage() {
 
   const filteredFromWh = useMemo(() => {
     if (ciudadFrom === "__all__") return warehouses;
-    return warehouses.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadFrom.toUpperCase());
+    // La Bodega Central siempre está disponible como origen
+    return warehouses.filter((w) => w.es_central || String(w.ciudad || "").toUpperCase() === ciudadFrom.toUpperCase());
   }, [warehouses, ciudadFrom]);
   const filteredToWh = useMemo(() => {
     let list = warehouses.filter((w) => w.id !== fromId);
-    if (ciudadTo !== "__all__") list = list.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadTo.toUpperCase());
+    if (ciudadTo !== "__all__") list = list.filter((w) => w.es_central || String(w.ciudad || "").toUpperCase() === ciudadTo.toUpperCase());
     return list;
   }, [warehouses, fromId, ciudadTo]);
 
   useEffect(() => {
-    if (from && ciudadFrom !== "__all__" && String(from.ciudad || "").toUpperCase() !== ciudadFrom.toUpperCase()) setFromId("");
+    if (from && !from.es_central && ciudadFrom !== "__all__" && String(from.ciudad || "").toUpperCase() !== ciudadFrom.toUpperCase()) setFromId("");
   }, [ciudadFrom]); // eslint-disable-line
   useEffect(() => {
-    if (to && ciudadTo !== "__all__" && String(to.ciudad || "").toUpperCase() !== ciudadTo.toUpperCase()) setToId("");
+    if (to && !to.es_central && ciudadTo !== "__all__" && String(to.ciudad || "").toUpperCase() !== ciudadTo.toUpperCase()) setToId("");
   }, [ciudadTo]); // eslint-disable-line
   const valorSel = useMemo(
     () => tools.filter((t) => selected.includes(t.tool_id)).reduce((s, t) => s + Number(t.valor || 0), 0),
@@ -135,7 +136,7 @@ export default function TraspasosPage() {
           <ArrowRightLeft className="w-7 h-7 text-red-600" /> Traspasos entre Bodegas
         </h1>
         <p className="text-sm text-neutral-500 mt-1">
-          Transfiere herramientas desde una bodega de una ciudad a la bodega de otra. Se genera un acta PDF y se notifica al responsable y a las bodegas.
+          Transfiere herramientas entre bodegas. Las herramientas nuevas ingresan a la Bodega Central y desde allí se envían a cualquier bodega. Se genera un acta PDF y se notifica al responsable y a las bodegas.
         </p>
       </div>
 
@@ -158,7 +159,7 @@ export default function TraspasosPage() {
                 <SelectTrigger data-testid="trs-from-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                 <SelectContent className="max-h-72">
                   {filteredFromWh.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
+                    <SelectItem key={w.id} value={w.id} data-testid={w.es_central ? "trs-central-option" : undefined}>{w.es_central ? `★ ${w.nombre}` : `${w.nombre} · ${w.ciudad}`}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -179,7 +180,7 @@ export default function TraspasosPage() {
                 <SelectTrigger data-testid="trs-to-select"><SelectValue placeholder="Seleccionar…" /></SelectTrigger>
                 <SelectContent className="max-h-72">
                   {filteredToWh.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
+                    <SelectItem key={w.id} value={w.id} data-testid={w.es_central ? "trs-central-option" : undefined}>{w.es_central ? `★ ${w.nombre}` : `${w.nombre} · ${w.ciudad}`}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -121,3 +121,5 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Frontend: `layouts/DocumentosLayout.jsx`, `pages/documentos/*` (Nueva entrega, Recibidas, Enviadas, Todas, Dashboard), vista en tarjetas en móvil.
 - Tests: `backend/tests/test_documentos.py` (18/18), UI 100% (iteration_4).
 - Entorno: se recrearon backend/.env y frontend/.env (faltaban) y la base se volvió a sembrar desde el Excel.
+- **Tickets (Nov 2026)**: campo opcional "Mediciones y valores"; tickets cerrados quedan bloqueados (estado/respuesta/reasignación/chat, para todos); rol Líder puede crear tickets → se asignan al primer admin (admin responde/chatea como responsable).
+- **Bodega Central (Nov 2026)**: bodega `es_central` (ciudad "CENTRAL") creada al iniciar; toda herramienta nueva (individual, carga masiva, seed de prueba) ingresa con asignación Vigente a bodega (`source: "ingreso"`). Traspasos: siempre visible como origen/destino aunque se filtre por ciudad. Asignar a técnico desde la Central sigue funcionando.
