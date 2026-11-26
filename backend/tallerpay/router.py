@@ -17,6 +17,7 @@ from pymongo.errors import DuplicateKeyError
 from .catalogo_act import create_catalogo_act_router
 from .promociones import create_promotions_router
 from .sap_import import create_sap_router
+from .productos import create_productos_router
 from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, num_text, read_rows,
                      to_date, to_number, upper)
 
@@ -27,6 +28,7 @@ SECTIONS = {
     "dashboard": "tp_dashboard",
     "talleres": "tp_talleres",
     "tarifarios": "tp_tarifarios",
+    "productos": "tp_tarifarios",
     "codificador": "tp_codificador",
     "promociones": "tp_promociones",
     "importacion": "tp_importacion",
@@ -101,7 +103,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if resource is None:
             raise HTTPException(status_code=404, detail="Sección no encontrada")
         await require_access(resource, user)
-        ready = section in ("talleres", "tarifarios", "codificador", "promociones", "importacion")
+        ready = section in ("talleres", "tarifarios", "productos", "codificador", "promociones", "importacion")
         return {"section": section, "ready": ready,
                 "message": "Disponible" if ready else "Funcionalidad pendiente de implementación"}
 
@@ -118,6 +120,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         await _catalogo_startup()
         await _promociones_startup()
         await _sap_startup()
+        await _productos_startup()
 
     _catalogo_router, _catalogo_startup = create_catalogo_act_router(db, get_current_user, effective_perms)
     router.include_router(_catalogo_router)
@@ -125,6 +128,8 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     router.include_router(_promociones_router)
     _sap_router, _sap_startup = create_sap_router(db, get_current_user, effective_perms)
     router.include_router(_sap_router)
+    _productos_router, _productos_startup = create_productos_router(db, get_current_user, effective_perms)
+    router.include_router(_productos_router)
     router.startup = startup
 
     # ------------------------------------------------------------------ helpers
