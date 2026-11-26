@@ -154,6 +154,12 @@ class KilometerEdit(BaseModel):
     motivo: str = ""
 
 
+class PriceAdjustment(BaseModel):
+    ticket_id: str
+    nuevo_importe: str
+    motivo: str
+
+
 class CloseIn(BaseModel):
     motivo: str = ""
 
@@ -322,12 +328,48 @@ def create_liquidaciones_router(db, current_user, effective_perms):
             t["valor_km"] = str((n*KM_RATE).quantize(Q))
             t["total"] = str((usd(t["mano_obra"])+usd(t["valor_km"])).quantize(Q))
         now = now_iso()
-        await db.tp_settlements.update_one({"id": sid, "version": doc["version"]}, {
+        update_result = await db.tp_settlements.update_one({"id": sid, "version": doc["version"]}, {
             "$set": {"tickets": lines, "totales": summarize(lines), "updated_at": now},
             "$inc": {"version": 1},
             "$push": {"historial": {"fecha": now, "usuario": actor(user), "accion": "EDITAR_KM",
                                     "motivo": payload.motivo, "anteriores": old_values,
                                     "nuevos": payload.kilometros}}})
+        if not update_result.modified_count:
+            raise HTTPException(409, "La liquidación fue modificada por otro usuario; recargue")
+        return await db.tp_settlements.find_one({"id": sid}, {"_id": 0})
+
+    @router.put("/liquidaciones/{sid}/ajustar")
+    async def edit_amount(sid: str, payload: PriceAdjustment, user: dict = Depends(current_user)):
+        await guard(user, edit=True)
+        doc = await db.tp_settlements.find_one({"id": sid}, {"_id": 0})
+        if not doc: raise HTTPException(404, "Liquidación no encontrada")
+        await guard(user, closed=doc["estado"] == "CERRADO")
+        if not clean(payload.motivo):
+            raise HTTPException(400, "Todo ajuste monetario exige motivo")
+        try:
+            value = str(usd(payload.nuevo_importe))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        line = next((x for x in doc["tickets"] if x["ticket_id"] == payload.ticket_id), None)
+        if not line:
+            raise HTTPException(404, "Ticket fuera de la liquidación")
+        if line["clasificacion"] in ("CS_NoPago", "PENDIENTE"):
+            raise HTTPException(400, "No es posible asignar valores a un ticket no pagable")
+        previous = line["mano_obra"]
+        previous_origin = line.get("precio_origen")
+        line["mano_obra"] = value
+        line["precio_origen"] = "AJUSTE_MANUAL"
+        line["total"] = str((usd(value)+usd(line.get("valor_km", "0"))).quantize(Q))
+        now = now_iso()
+        result = await db.tp_settlements.update_one({"id": sid, "version": doc["version"]},
+            {"$set": {"tickets": doc["tickets"], "totales": summarize(doc["tickets"]), "updated_at": now},
+             "$inc": {"version": 1},
+             "$push": {"historial": {"fecha": now, "usuario": actor(user), "accion": "AJUSTE_IMPORTE",
+                                     "motivo": clean(payload.motivo), "ticket_id": payload.ticket_id,
+                                     "anterior": previous, "anterior_origen": previous_origin,
+                                     "nuevo": value}}})
+        if not result.modified_count:
+            raise HTTPException(409, "La liquidación fue modificada por otro usuario; recargue")
         return await db.tp_settlements.find_one({"id": sid}, {"_id": 0})
 
     @router.post("/liquidaciones/{sid}/cerrar")
