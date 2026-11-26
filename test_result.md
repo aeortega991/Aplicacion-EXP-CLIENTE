@@ -223,6 +223,18 @@ backend:
         agent: "main"
         comment: "Nuevo módulo. Endpoints /api/docs/meta, POST/GET /api/docs/entregas (scope recibidas|enviadas|todas[admin]), GET /api/docs/entregas/{id}, POST /api/docs/entregas/{id}/aceptar (solo receptor), GET /api/docs/entregas/{id}/acta (PDF), GET /api/docs/pendientes, GET /api/docs/dashboard (admin). Código CD-AAAA-000001, email al receptor."
 
+  - task: "Pago a talleres Fase A - Talleres tercerizados, Tarifarios y archivos"
+    implemented: true
+    working: "NA"
+    file: "backend/tallerpay/router.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Endpoints /api/tallerpay/talleres (GET/POST/PUT, /{id}/estado, /template, /import upsert por codigo_sap), /api/tallerpay/tarifarios (GET/POST/PUT/DELETE, /template, /import upsert por sap+linea+peso), archivos /talleres/{id}/archivos (GET/POST multipart), /archivos/{id} (GET/DELETE soft). Permisos: solo admin/coordinador/lider; edicion segun matriz tp_talleres/tp_tarifarios (default solo admin)."
+
 frontend:
   - task: "Login Flow - Admin User (UI)"
     implemented: true

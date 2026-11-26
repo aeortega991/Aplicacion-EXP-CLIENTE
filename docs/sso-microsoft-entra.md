@@ -16,7 +16,7 @@ de Outlook / Microsoft 365), además del login por usuario y contraseña ya exis
 2. Tipo de cuenta: **Accounts in this organizational directory only** (single-tenant).
 3. **Authentication → Add a platform → Web**, y agrega como Redirect URI exactamente:
    `https://TU-DOMINIO/api/auth/microsoft/callback`
-   (en preview: `https://prueba-aplicacion--0x17fz9z.preview.emergentagent.com/api/auth/microsoft/callback`)
+   (en preview: `https://kickoff-now-12--1vypaz70.preview.emergentagent.com/api/auth/microsoft/callback`)
 4. **Certificates & secrets → New client secret** → copia el **Value** (no el ID).
 5. Copia **Application (client) ID** y **Directory (tenant) ID** de la pestaña Overview.
 6. Permisos de Graph: no se requieren; basta con `openid profile email`.

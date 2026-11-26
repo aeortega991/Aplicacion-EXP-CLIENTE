@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 
 # Base URL from frontend/.env
-BASE_URL = "https://prueba-aplicacion--0x17fz9z.preview.emergentagent.com/api"
+BASE_URL = "https://kickoff-now-12--1vypaz70.preview.emergentagent.com/api"
 
 # Test credentials
 USERS = {

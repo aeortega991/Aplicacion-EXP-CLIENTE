@@ -4731,8 +4731,10 @@ _ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_adm
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
 from tallerpay.router import create_tallerpay_router  # noqa: E402
-_tallerpay_router = create_tallerpay_router(get_current_user, _effective_perms)
+from service_tickets import _put_object as _ts_put_object, _get_object as _ts_get_object  # noqa: E402
+_tallerpay_router = create_tallerpay_router(get_current_user, _effective_perms, db, _ts_put_object, _ts_get_object)
 app.include_router(_tallerpay_router)
+app.add_event_handler("startup", _tallerpay_router.startup)
 from documents import create_documents_router  # noqa: E402
 _docs_router, _docs_startup = create_documents_router(db, get_current_user, _effective_perms, _send_email, APP_BASE_URL, EMAIL_FROM_NAME, _pdf_brand_header)
 app.include_router(_docs_router)
