@@ -91,7 +91,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     @router.get("/status")
     async def status(user: dict = Depends(get_current_user)):
         await require_access("tp_dashboard", user)
-        return {"module": "Pago a talleres", "phase": "A", "business_operations_enabled": db is not None}
+        return {"module": "Pago a talleres", "phase": "B", "business_operations_enabled": db is not None}
 
     @router.get("/sections/{section}")
     async def section_status(section: str, user: dict = Depends(get_current_user)):
@@ -99,7 +99,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if resource is None:
             raise HTTPException(status_code=404, detail="Sección no encontrada")
         await require_access(resource, user)
-        ready = section in ("talleres", "tarifarios")
+        ready = section in ("talleres", "tarifarios", "codificador")
         return {"section": section, "ready": ready,
                 "message": "Disponible" if ready else "Funcionalidad pendiente de implementación"}
 
