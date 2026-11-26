@@ -186,8 +186,12 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
                 "descripcion": clean(p.get("descripcion")), "vigente_desde": to_date(p.get("vigente_desde"))}
 
     async def tariff_counts() -> dict:
-        rows = await db.tp_tariffs.aggregate([{"$group": {"_id": "$taller_id", "n": {"$sum": 1}}}]).to_list(10000)
-        return {r["_id"]: r["n"] for r in rows}
+        rows_old = await db.tp_tariffs.aggregate([{"$group": {"_id": "$taller_id", "n": {"$sum": 1}}}]).to_list(10000)
+        rows_new = await db.tp_tariff_matrix.aggregate([{"$group": {"_id": "$taller_id", "n": {"$sum": 1}}}]).to_list(10000)
+        counts = {r["_id"]: r["n"] for r in rows_old}
+        for r in rows_new:
+            counts[r["_id"]] = counts.get(r["_id"], 0) + r["n"]
+        return counts
 
     # ------------------------------------------------------------------ talleres
     @router.get("/talleres")
@@ -282,7 +286,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     async def workshop_detail(wid: str, user: dict = Depends(get_current_user)):
         await require_any(("tp_talleres", "tp_tarifarios"), user)
         w = await get_workshop(wid)
-        w["tarifas"] = await db.tp_tariffs.count_documents({"taller_id": wid})
+        w["tarifas"] = await db.tp_tariffs.count_documents({"taller_id": wid}) + await db.tp_tariff_matrix.count_documents({"taller_id": wid})
         return w
 
     @router.put("/talleres/{wid}")
