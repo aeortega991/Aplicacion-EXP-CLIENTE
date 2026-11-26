@@ -64,7 +64,7 @@ class PromotionsRulesTests(unittest.TestCase):
                              "vigente_hasta": "2026-12-31"})
 
     def test_template_and_api_routes(self):
-        self.assertEqual(len(PROMO_HEADERS), 9)
+        self.assertEqual(len(PROMO_HEADERS), 10)
         async def current_user():
             return {"role": "admin"}
         async def perms(user):
