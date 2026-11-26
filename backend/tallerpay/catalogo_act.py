@@ -115,6 +115,11 @@ class MatrixIn(BaseModel):
     vigente_desde: str | None = None
 
 
+class KilometerRateIn(BaseModel):
+    tecnico_codigo: str
+    valor_km: str
+
+
 class LegacyMapIn(BaseModel):
     mapa: dict[str, str]  # peso numérico histórico -> SL/SM/SG, decisión explícita
 
@@ -142,6 +147,7 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
         await db.tp_act_imports.create_index("id", unique=True)
         await db.tp_tariff_matrix.create_index([("taller_id", 1), ("linea", 1), ("nivel", 1)], unique=True)
         await db.tp_technician_tariffs.create_index([("tecnico_codigo", 1), ("linea", 1), ("nivel", 1)], unique=True)
+        await db.tp_technician_km_rates.create_index("tecnico_codigo", unique=True)
         for key, name in DEFAULT_LINES:
             await db.tp_lines.update_one({"codigo": key},
                 {"$setOnInsert": {"codigo": key, "nombre": name, "activo": True, "sistema": True}}, upsert=True)
@@ -319,6 +325,34 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
             "$push": {"historial": event},
         }, upsert=True)
         return await db.tp_technician_tariffs.find_one(query, {"_id": 0})
+
+    @router.get("/tarifa-kilometraje")
+    async def km_rate(tecnico_codigo: str, user: dict = Depends(get_current_user)):
+        await guard(user, "tp_tarifarios")
+        item = await db.tp_technician_km_rates.find_one(
+            {"tecnico_codigo": clean(tecnico_codigo)}, {"_id": 0})
+        return {"item": item}
+
+    @router.put("/tarifa-kilometraje")
+    async def save_km_rate(payload: KilometerRateIn, user: dict = Depends(get_current_user)):
+        await guard(user, "tp_tarifarios", True)
+        key = clean(payload.tecnico_codigo)
+        if not await db.tool_technicians.find_one({"codigo": key}, {"_id": 0}):
+            raise HTTPException(404, "Técnico no registrado")
+        try:
+            valor = money_number(payload.valor_km)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        query = {"tecnico_codigo": key}
+        old = await db.tp_technician_km_rates.find_one(query, {"_id": 0})
+        await db.tp_technician_km_rates.update_one(query, {
+            "$set": {"valor_km": valor, "updated_at": now_iso(), "updated_by": actor(user)},
+            "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now_iso()},
+            "$push": {"historial": {"fecha": now_iso(), "usuario": actor(user),
+                                    "valor_anterior": old.get("valor_km") if old else None,
+                                    "valor_nuevo": valor}},
+        }, upsert=True)
+        return await db.tp_technician_km_rates.find_one(query, {"_id": 0})
 
     @router.get("/matriz-tarifaria/legado")
     async def legacy(taller_id: str, user: dict = Depends(get_current_user)):
