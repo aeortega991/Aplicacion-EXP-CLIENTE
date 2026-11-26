@@ -29,3 +29,26 @@ GitHub Actions `.github/workflows/tallerpay-v2.yml` ejecuta pruebas unitarias de
 
 ## Pendientes
 Validar el encabezado real y los códigos de un archivo ACT de producción, ajustar el mapeo de columnas si difiere y completar pruebas de integración con MongoDB. Instalaciones de aire acondicionado y liquidaciones permanecen fuera del alcance de esta fase.
+
+## Formato ACT validado con archivo «Codificador CALIDAD de daño CX COMPLETO (2).xlsx»
+
+La pestaña **Codificador ACT** del libro proporcionado contiene 420 filas de datos y 10 columnas.
+El importador ahora selecciona preferentemente la hoja por ese nombre (en lugar de la primera
+hoja «Propuesta») y utiliza exclusivamente cuatro campos:
+
+| Campo | Columna original | Campo MongoDB |
+|---|---|---|
+| Producto | A, `Producto` | `producto` |
+| Código de resolución | E, `Codigo resolucion` | `codigo` |
+| Categoría de resolución | F, `CATEGORIA DE RESOLUCION` | `descripcion` |
+| Peso ACT | G, `PESO` | `peso_original` |
+
+El importador ignora categorías/códigos de causa, categorías de objeto, equivalencia, minutos
+y horas. Tampoco persiste copias de estas columnas adicionales en los nuevos registros.
+El Excel reducido se puede descargar desde la interfaz en **Descargar plantilla (4 columnas)**.
+También se permite subir el Excel original sin modificarlo.
+
+**Excepción observada:** una fila (`SG12ABAB12`, «Venta Protección Extendida») tiene
+peso `0`; se guarda con `nivel_tarifario=null` y `requiere_revision=true`:
+no se permite derivar un importe de ese peso hasta que exista una regla aprobada.
+Las 419 filas restantes usan pesos SB, SL, SM, SG o SE. No multiplicar por equivalencia.
