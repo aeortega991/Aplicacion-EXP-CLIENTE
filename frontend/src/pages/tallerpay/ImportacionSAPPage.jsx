@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FileUp, Search, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 const FIELDS = [
-  ["ticket_id", "Ticket"], ["fecha_solucion", "Fecha solución"],
+  ["ticket_id", "Ticket"], ["asunto", "Asunto (columna B)"], ["clasificacion_preliminar", "Clasificación"], ["fecha_solucion", "Fecha solución"],
   ["tecnico", "Técnico"], ["tecnico_codigo", "Código técnico"],
   ["cadena", "Cadena"], ["categoria_resolucion", "Resolución"],
   ["codigo_act", "Código ACT"], ["producto_descripcion", "Producto"],
@@ -73,6 +73,7 @@ export default function ImportacionSAPPage() {
     <section className="rounded-lg border bg-white p-5 space-y-4">
       <h2 className="font-semibold">1. Seleccionar archivo SAP (.xml o .xlsx)</h2>
       <p className="text-sm text-neutral-600">Ambos formatos conservan las columnas originales: asunto B, ticket C, fecha de solución I, código ACT X y técnico U/V. El archivo .xlsx debe conservar el orden de columnas de SAP. Los registros existentes no se sobrescriben.</p>
+      <p className="text-sm text-amber-800">Regla de pago: si el texto de B contiene la palabra ENTREGA o un número de otro ticket, se clasifica CS_NoPago, independientemente de la promoción. El número del ticket actual se toma exclusivamente de C.</p>
       <input type="file" accept=".xml,.xlsx,text/xml,application/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Archivo SAP XML o XLSX"
         onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null);setResult(null)}}/>
       <div className="flex flex-wrap gap-2">
@@ -86,6 +87,9 @@ export default function ImportacionSAPPage() {
           {stat("Advertencias",preview.total_advertencias||0)}
           {stat("Facturados",preview.facturados)}
           {stat("Foráneos",preview.foraneos)}
+          {stat("CS_NoPago",preview.no_pagables||0)}
+          {stat("Por ENTREGA",preview.por_entrega||0)}
+          {stat("Por otro ticket",preview.por_referencia_ticket||0)}
         </div>
         <p className="text-sm">Hoja: <strong>{preview.hoja}</strong> · Períodos: {Object.entries(preview.periodos||{}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
         <p className="text-sm">Técnicos: {(preview.tecnicos||[]).length} · Asignación a talleres: pendiente de revisión en el módulo de liquidación.</p>
