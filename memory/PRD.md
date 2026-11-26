@@ -114,3 +114,10 @@ Aplicación con pantalla principal y varios módulos para control de flota vehic
 - Frontend: menús Viaje salida / Viaje retorno / Rutas de servicio (reemplazan Rutas; /vehiculos/rutas redirige). Archivos `src/pages/viajes/*`, `src/components/SearchSelect.jsx`. Campos Origen/Destino quitados del formulario (datos históricos intactos).
 - Prueba: `python /app/backend/tests/trips_smoke.py` → 36/36 PASS.
 
+
+## Entregas de documentos (Nov 2026)
+- Nueva tarjeta en el hub (`/documentos`), recurso de permisos `documentos` (visible para todos los roles por defecto).
+- Backend `backend/documents.py` (`/api/docs/*`): meta, crear (código CD-AAAA-000001 vía `counters`, ciudad/nombres históricos, valida receptor≠emisor, emisor con ciudad, URL http/https, campos de Capacitación + participantes), listar por scope (recibidas/enviadas/todas-admin), detalle (solo emisor/receptor/admin), aceptar (solo receptor asignado, atómico), acta PDF con firmas (y firmas por participante), pendientes (badge), dashboard admin (por ciudad y por tipo). Correo al receptor al crear (Emergent email).
+- Frontend: `layouts/DocumentosLayout.jsx`, `pages/documentos/*` (Nueva entrega, Recibidas, Enviadas, Todas, Dashboard), vista en tarjetas en móvil.
+- Tests: `backend/tests/test_documentos.py` (18/18), UI 100% (iteration_4).
+- Entorno: se recrearon backend/.env y frontend/.env (faltaban) y la base se volvió a sembrar desde el Excel.

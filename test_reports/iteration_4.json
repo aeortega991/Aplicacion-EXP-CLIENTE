@@ -1,0 +1,31 @@
+{
+  "summary": "Tested the new 'Entregas de documentos' module end to end. Backend: 18/18 pytest cases pass. They cover meta, every create validation (self receptor, no city, bad URLs ftp/no-scheme/empty/space, invalid tipo, nonexistent receptor, missing Capacitación fields, blank participants), sequential CD-AAAA-NNNNNN codes, historical name/city fields, scopes, visibility (404 for an unrelated user), accept permissions (emisor 403, admin non-receptor 403, second accept 400), acta PDF access and the admin-only dashboard. Frontend: all requested flows work: hub card, Nueva entrega with Capacitación (add/remove participants, Enter key, count), toast and redirect to Enviadas, receptor pending badge, detail dialog, PDF download, accept confirm, no-city alert with submit disabled, admin dashboard/Todas with no accept buttons, non-admin redirect. No functional bugs found.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "/api/docs/meta, POST /api/docs/entregas", "issue": "The active-user filter uses users.activo, but no user document has an 'activo' field, so the filter does nothing (every user counts as active). It works today, but it will not exclude anyone if a different deactivation flag is used later."},
+    {"endpoint": "/api/docs/entregas", "issue": "The list is not paginated (to_list(5000)) and q filtering runs in Python. Fine for an MVP."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Documentos header (desktop)", "issues": ["Sonner toasts (top-right) overlap the logout button in the header for a few seconds after login or create"]},
+      {"screen": "Todas/Enviadas on mobile (390px)", "issues": ["The table scrolls sideways. The Estado and Acciones columns, including the Aceptar button, are off-screen and the user must scroll to reach them. Consider a card layout on mobile.", "The header hides the module title on mobile, so only the icon shows"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_documentos.py", "/app/test_reports/pytest/pytest_documentos.xml"],
+  "action_items": [
+    "Optional: move the Toaster position or add an offset so toasts do not cover the header logout button",
+    "Optional: on mobile, make the Aceptar action visible without scrolling sideways (cards, or a sticky actions column)"
+  ],
+  "critical_code_review_comments": [
+    "Permission enforcement is correct on the backend: _get_or_404 runs before the receptor check, and the accept uses an atomic find_one_and_update guarded on estado.",
+    "The Capacitación fields are kept in the payload and the DB when tipo is not Capacitación only if they are sent. The frontend already strips them, and the backend sets capacitacion=None, so this is fine.",
+    "Not tested: the case where an admin is the receptor and accepts. The logic allows it (it only compares receptor_id to user id), but no test was run, to avoid emailing the admin's possibly real address."
+  ],
+  "updated_files": ["/app/backend/tests/test_documentos.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Test entregas were created by the pytest run (2) and by the UI run (CD-2026-000005, docemisor->docreceptor, then accepted). All of them were deleted by id afterwards. The counter is now at 5, so the next code is CD-2026-000006. The main agent's CD-2026-000001/000002 were left untouched. Note: the UI run accepted CD-2026-000005, which was mine, not 000002, so 000002 is still pending.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest /app/backend/tests/test_documentos.py -p no:xdist. It deletes the entregas it creates, by id, through Mongo. Use only docemisor/docreceptor/docsinciudad as receptors (their emails are delivered@resend.dev). Login testids: login-username-input, login-password-input, login-submit-button."
+}

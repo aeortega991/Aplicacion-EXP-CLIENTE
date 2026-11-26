@@ -38,9 +38,9 @@ export default function DocumentosLayout() {
           <Link to="/" className="flex items-center gap-2 shrink-0 group" data-testid="docs-back-to-hub">
             <ArrowLeft className="w-4 h-4 text-neutral-400 group-hover:text-red-600" />
             <div className="w-9 h-9 rounded-md bg-[#0033A0] flex items-center justify-center text-white"><FileSignature className="w-4 h-4" /></div>
-            <div className="hidden sm:block">
+            <div>
               <div className="text-sm font-bold leading-tight">Entregas de documentos</div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500">Contratos · actas · capacitaciones</div>
+              <div className="hidden sm:block text-[10px] uppercase tracking-widest text-neutral-500">Contratos · actas · capacitaciones</div>
             </div>
           </Link>
           <div className="flex-1" />

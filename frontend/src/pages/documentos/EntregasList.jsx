@@ -116,7 +116,36 @@ export default function EntregasList({ scope }) {
             )}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <>
+          <ul className="sm:hidden divide-y divide-neutral-100" data-testid="docs-cards">
+            {rows.map((d) => {
+              const canAccept = d.receptor_id === user?.id && d.estado === PENDIENTE;
+              const other = scope === "recibidas" ? `De: ${d.emisor_nombre}` : scope === "enviadas" ? `Para: ${d.receptor_nombre}` : `${d.emisor_nombre} → ${d.receptor_nombre}`;
+              return (
+                <li key={d.id} className="p-4 space-y-2" data-testid="docs-card">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-mono text-xs font-semibold">{d.codigo}</div>
+                      <div className="text-sm font-medium">{d.tipo}</div>
+                    </div>
+                    <EstadoBadge estado={d.estado} />
+                  </div>
+                  <div className="text-xs text-neutral-600">{other}</div>
+                  <div className="text-[11px] text-neutral-500">{d.ciudad} · {fmtDateTime(d.created_at)}</div>
+                  <div className="flex gap-2 pt-1">
+                    {canAccept && (
+                      <Button size="sm" className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700 flex-1" onClick={() => setToAccept(d)} data-testid="docs-card-accept">
+                        <CheckCircle2 className="w-4 h-4" /> Aceptar
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setDetail(d)}><Eye className="w-4 h-4" /> Ver</Button>
+                    <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => downloadActa(d)}><Download className="w-4 h-4" /> Acta</Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <table className="hidden sm:table w-full text-sm">
             <thead className="bg-neutral-50 text-[11px] uppercase tracking-wider text-neutral-500">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold">Código</th>
@@ -159,6 +188,7 @@ export default function EntregasList({ scope }) {
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
 
