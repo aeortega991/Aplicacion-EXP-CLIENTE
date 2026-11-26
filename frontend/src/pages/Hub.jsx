@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck, Ticket, FileSignature } from "lucide-react";
+import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck, Ticket, FileSignature, FileSpreadsheet } from "lucide-react";
 
 const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) => (
   <Link
@@ -111,6 +111,17 @@ export default function Hub() {
               tag="Documentos"
               gradient="bg-gradient-to-br from-emerald-600 to-[#0033a0]"
               testId="hub-documentos-card"
+            />
+          )}
+          {["lider", "coordinador", "admin"].includes(user?.role) && can("tallerpay") && (
+            <ModuleCard
+              to="/pago-talleres"
+              icon={FileSpreadsheet}
+              title="Pago a talleres"
+              subtitle="Talleres tercerizados, tarifarios, codificador ACT, promociones comerciales, importación SAP y liquidaciones."
+              tag="Tercerizados"
+              gradient="bg-gradient-to-br from-red-700 to-neutral-900"
+              testId="hub-tallerpay-card"
             />
           )}
           {user?.role === "admin" && (
