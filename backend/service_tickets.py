@@ -246,10 +246,13 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
 
     @r.post("/tickets")
     async def create_ticket(modelo: str = Form(""), serie: str = Form(""), descripcion: str = Form(""),
-                            file: Optional[UploadFile] = File(None), user: dict = Depends(ts_user)):
+                            mediciones: str = Form(""), file: Optional[UploadFile] = File(None), user: dict = Depends(ts_user)):
         if user["role"] != TECNICO:
             raise HTTPException(status_code=403, detail="Solo los técnicos pueden crear tickets")
         modelo, serie, descripcion = modelo.strip(), serie.strip(), descripcion.strip()
+        mediciones = mediciones.strip()
+        if len(mediciones) > 4000:
+            raise HTTPException(status_code=400, detail="Mediciones y valores: máximo 4000 caracteres")
         missing = [n for n, v in (("Modelo", modelo), ("Serie", serie), ("Descripción del daño", descripcion)) if not v]
         if not file or not file.filename:
             missing.append("Multimedia")
@@ -275,7 +278,7 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         ciudad = _norm(user.get("ciudad")) or None
         region = await city_region(db, ciudad)
         doc = {
-            "id": tid, "modelo": modelo, "serie": serie, "descripcion": descripcion,
+            "id": tid, "modelo": modelo, "serie": serie, "descripcion": descripcion, "mediciones": mediciones,
             "tecnico_id": user["id"], "tecnico_nombre": user.get("name"), "tecnico_username": user.get("username"),
             "ciudad": ciudad, "region_id": region["id"] if region else None,
             "region_nombre": region["nombre"] if region else None,

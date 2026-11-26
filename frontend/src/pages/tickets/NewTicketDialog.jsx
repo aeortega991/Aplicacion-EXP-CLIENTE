@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { MediaPicker } from "./MediaPicker";
 
 const EXTS = ["jpg", "jpeg", "png", "webp", "mp4", "mov"];
-const empty = { modelo: "", serie: "", descripcion: "" };
+const empty = { modelo: "", serie: "", descripcion: "", mediciones: "" };
 
 export const NewTicketDialog = ({ open, onOpenChange, maxMb = 25, onCreated }) => {
   const [form, setForm] = useState(empty);
@@ -60,7 +60,7 @@ export const NewTicketDialog = ({ open, onOpenChange, maxMb = 25, onCreated }) =
       <DialogContent className="max-w-lg w-[calc(100vw-1.5rem)] max-h-[92vh] overflow-y-auto" data-testid="ts-new-dialog">
         <DialogHeader>
           <DialogTitle>Nuevo ticket de servicio</DialogTitle>
-          <DialogDescription>Todos los campos son obligatorios. Una vez creado no podrá modificarse.</DialogDescription>
+          <DialogDescription>Los campos con * son obligatorios. Una vez creado no podrá modificarse.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -80,6 +80,12 @@ export const NewTicketDialog = ({ open, onOpenChange, maxMb = 25, onCreated }) =
           <div className="space-y-1.5">
             <Label>Descripción del daño *</Label>
             <Textarea rows={4} value={form.descripcion} onChange={set("descripcion")} data-testid="ts-new-descripcion" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Mediciones y valores</Label>
+            <Textarea rows={3} value={form.mediciones} onChange={set("mediciones")} maxLength={4000}
+              placeholder="Ingresa los valores de las variables de entorno humedad, temperatura, voltaje, etc"
+              data-testid="ts-new-mediciones" />
           </div>
           {saving && <Progress value={progress} data-testid="ts-new-progress" />}
         </div>

@@ -33,6 +33,7 @@ const TicketInfo = ({ t }) => (
       {t.closed_at && <Field label="Cierre" testId="ts-info-closed">{fmtDT(t.closed_at)}</Field>}
     </div>
     <Field label="Descripción del daño"><p className="whitespace-pre-wrap font-normal">{t.descripcion}</p></Field>
+    <Field label="Mediciones y valores"><p className="whitespace-pre-wrap font-normal" data-testid="ts-detail-mediciones">{t.mediciones || "—"}</p></Field>
     <div className="grid sm:grid-cols-2 gap-3">{(t.media || []).map((m) => <TicketMedia key={m.id} media={m} />)}</div>
   </section>
 );
