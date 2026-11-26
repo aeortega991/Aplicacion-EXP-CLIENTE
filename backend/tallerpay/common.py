@@ -44,7 +44,7 @@ def _strip_accents(s: str) -> str:
 
 
 def norm_linea(v) -> Optional[str]:
-    s = _strip_accents(clean(v).lower()).replace("linea", "").strip()
+    s = re.sub(r"^linea\\s+", "", _strip_accents(clean(v).lower())).strip()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s if re.fullmatch(r"[a-z0-9][a-z0-9-]{1,39}", s) else None
 
