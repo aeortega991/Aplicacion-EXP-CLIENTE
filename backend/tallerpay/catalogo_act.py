@@ -70,7 +70,7 @@ class LegacyMapIn(BaseModel):
 
 
 def create_catalogo_act_router(db, get_current_user, effective_perms):
-    router = APIRouter(prefix="/api/tallerpay", tags=["Pago a talleres: catálogos y ACT"])
+    router = APIRouter(tags=["Pago a talleres: catálogos y ACT"])
 
     async def guard(user, resource="tp_tarifarios", edit=False):
         if user.get("role") not in {"admin", "lider", "coordinador"}:
