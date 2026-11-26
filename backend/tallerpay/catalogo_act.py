@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
-from .common import clean, now_iso, read_rows
+from .common import build_template, clean, now_iso
 
 LEVELS = {"SL": "Leve", "SM": "Moderado", "SG": "Grave"}
 DEFAULT_LINES = [("blanca", "Línea Blanca"), ("cafe", "Línea Café")]
@@ -20,6 +20,56 @@ DEFAULT_WEIGHTS = [("SB", "Básico", "SL"), ("SL", "Leve", "SL"),
                    ("SM", "Moderado", "SM"), ("SG", "Grave", "SG"),
                    ("SE", "Especial", "SG")]
 MAX_IMPORT_BYTES = 8 * 1024 * 1024
+
+ACT_TEMPLATE_HEADERS = ["producto", "codigo_resolucion", "categoria_resolucion", "peso"]
+ACT_HEADER_ALIASES = {
+    "producto": ("producto", "grupo_producto"),
+    "codigo": ("codigo_resolucion", "codigo_de_resolucion", "codigo_act", "codigo", "cod"),
+    "descripcion": ("categoria_resolucion", "categoria_de_resolucion", "descripcion", "descripcion_resolucion"),
+    "peso": ("peso", "peso_act", "peso_resolucion", "peso_de_resolucion"),
+}
+
+def _column_name(raw):
+    from .common import _strip_accents
+    return re.sub(r"[^a-z0-9]+", "_", _strip_accents(clean(raw).lower())).strip("_")
+
+def read_act_sheet(content):
+    """Lee exclusivamente 'Codificador ACT' cuando existe; acepta también plantilla de 4 columnas.
+
+    La hoja original puede tener 10+ columnas: se descartan las no necesarias.
+    """
+    import openpyxl
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), data_only=True, read_only=True)
+    except Exception:
+        raise HTTPException(400, "Archivo Excel .xlsx inválido")
+    try:
+        sheet = next((sh for sh in wb.worksheets if _column_name(sh.title) == "codificador_act"), wb.active)
+        iterator = sheet.iter_rows(values_only=True)
+        header = next(iterator, None)
+        if not header:
+            raise HTTPException(400, "La hoja seleccionada está vacía")
+        columns = {}
+        for idx, value in enumerate(header):
+            normalized = _column_name(value)
+            if normalized and normalized not in columns:
+                columns[normalized] = idx
+        indices = {field: next((columns[alias] for alias in aliases if alias in columns), None)
+                   for field, aliases in ACT_HEADER_ALIASES.items()}
+        if indices["codigo"] is None or indices["peso"] is None:
+            raise HTTPException(400, "La hoja requiere Código de resolución y Peso")
+        output = []
+        for line_number, record in enumerate(iterator, 2):
+            if not record or all(x is None or clean(x) == "" for x in record):
+                continue
+            def val(field):
+                idx = indices[field]
+                return record[idx] if idx is not None and idx < len(record) else None
+            output.append((line_number, {field: val(field) for field in indices}))
+        return sheet.title, output
+    finally:
+        wb.close()
+
 
 
 def slug(value):
@@ -160,53 +210,55 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
         await guard(user, "tp_codificador")
         return {"items": await db.tp_act_imports.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)}
 
+    @router.get("/act/template")
+    async def act_template(user: dict = Depends(get_current_user)):
+        await guard(user, "tp_codificador")
+        return build_template(ACT_TEMPLATE_HEADERS,
+            ["REFRIGERACION_CLIMATIZACION", "SG04AEAD02", "INSTALACION NIVEL 1", "SL"],
+            "plantilla_codificador_act.xlsx")
+
     @router.post("/act/import")
     async def import_act(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
         await guard(user, "tp_codificador", True)
         if not (file.filename or "").lower().endswith(".xlsx"):
-            raise HTTPException(400, "Solo se admiten Excel .xlsx")
+            raise HTTPException(400, "Solo se admiten archivos .xlsx")
         content = await file.read(MAX_IMPORT_BYTES + 1)
         if len(content) > MAX_IMPORT_BYTES:
             raise HTTPException(413, "El Excel supera 8 MB")
-        headers, rows = read_rows(content)
-        aliases = {
-            "codigo": ("codigo", "codigo_act", "codificacion", "resolucion", "codigo_resolucion", "codigo_de_resolucion", "cod_act", "cod"),
-            "descripcion": ("descripcion", "detalle", "descripcion_resolucion", "descripcion_de_resolucion", "nombre"),
-            "peso": ("peso", "peso_act", "peso_de_resolucion", "peso_resolucion", "nivel", "complejidad"),
-            "equivalencia": ("equivalencia", "equivalencia_informativa", "equivalencia_act"),
-        }
-        from .common import _strip_accents
-        def normalize_header(s):
-            return re.sub(r"[^a-z0-9]+", "_", _strip_accents(s.lower())).strip("_")
-        columns = {normalize_header(h): h for h in headers}
-        mapped = {k: next((columns[a] for a in opts if a in columns), None) for k, opts in aliases.items()}
-        if not mapped["codigo"] or not mapped["peso"]:
-            raise HTTPException(400, "Se requieren columnas de código ACT y peso; encabezados: " + ", ".join(headers))
+        sheet_name, rows = read_act_sheet(content)
         weights_by_code = {w["codigo"]: w for w in await db.tp_act_weights.find({}, {"_id": 0}).to_list(500)}
-        valid, errors, duplicates, seen = [], [], 0, set()
-        for idx, row in rows:
-            key = code(row.get(mapped["codigo"]))
-            weight = code(row.get(mapped["peso"]))
+        valid, errors, seen, pending = [], [], set(), 0
+        for line_number, row in rows:
+            key = code(row["codigo"])
+            weight = code(row["peso"])
             if not key or len(key) > 100:
-                errors.append(f"Fila {idx}: código ACT vacío o demasiado largo")
+                errors.append(f"Fila {line_number}: Código de resolución ausente o demasiado largo")
                 continue
             if key in seen:
-                duplicates += 1
-                errors.append(f"Fila {idx}: código ACT repetido: {key}")
+                errors.append(f"Fila {line_number}: código de resolución duplicado: {key}")
                 continue
             seen.add(key)
-            w = weights_by_code.get(weight)
-            if not w or not w.get("activo", True):
-                errors.append(f"Fila {idx}: peso ACT '{weight}' no configurado; regístrelo primero")
-                continue
-            valid.append({"codigo": key, "descripcion": clean(row.get(mapped["descripcion"])) if mapped["descripcion"] else "",
-                          "peso_original": weight, "nivel_tarifario": w["nivel_tarifario"],
-                          "equivalencia": clean(row.get(mapped["equivalencia"])) if mapped["equivalencia"] else "",
-                          "original": {k: str(v) if v is not None else "" for k, v in row.items()}})
-        # Evitar importaciones parciales inesperadas: filas incorrectas no se guardan.
+            if weight == "0":
+                level = None  # Sin peso valorable; nunca calcular importes automáticamente
+                pending += 1
+            else:
+                w = weights_by_code.get(weight)
+                if not w or not w.get("activo", True):
+                    errors.append(f"Fila {line_number}: peso '{weight}' no configurado; créelo antes de importar")
+                    continue
+                level = w["nivel_tarifario"]
+            valid.append({
+                "codigo": key,
+                "producto": clean(row["producto"]),
+                "descripcion": clean(row["descripcion"]),
+                "peso_original": weight,
+                "nivel_tarifario": level,
+                "requiere_revision": level is None,
+            })
         if errors:
-            return {"confirmed": False, "inserted": 0, "updated": 0, "duplicates": duplicates,
-                    "valid": len(valid), "errors": errors[:200], "mensaje": "Corrija los errores y vuelva a importar"}
+            return {"confirmed": False, "inserted": 0, "updated": 0, "valid": len(valid),
+                    "pending": pending, "errors": errors[:200], "total": len(rows),
+                    "message": "No se guardó ningún registro. Corrija los errores"}
         batch = str(uuid.uuid4())
         inserted = updated = 0
         for item in valid:
@@ -216,9 +268,10 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
             inserted += int(res.upserted_id is not None)
             updated += int(res.upserted_id is None)
         await db.tp_act_imports.insert_one({"id": batch, "filename": file.filename,
-            "created_at": now_iso(), "user": actor(user), "inserted": inserted,
-            "updated": updated, "total": len(rows)})
-        return {"confirmed": True, "inserted": inserted, "updated": updated, "duplicates": 0, "errors": []}
+            "hoja": sheet_name, "created_at": now_iso(), "user": actor(user),
+            "inserted": inserted, "updated": updated, "pending": pending, "total": len(rows)})
+        return {"confirmed": True, "inserted": inserted, "updated": updated, "pending": pending,
+                "total": len(rows), "hoja": sheet_name, "errors": []}
 
     @router.get("/act/resolver/{codigo}")
     async def resolve_act(codigo: str, user: dict = Depends(get_current_user)):
