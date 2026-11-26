@@ -170,10 +170,10 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
             raise HTTPException(413, "El Excel supera 8 MB")
         headers, rows = read_rows(content)
         aliases = {
-            "codigo": ("codigo", "codigo_act", "codificacion", "resolucion", "codigo_resolucion", "cod"),
-            "descripcion": ("descripcion", "detalle", "descripcion_resolucion", "nombre"),
-            "peso": ("peso", "peso_act", "nivel", "complejidad"),
-            "equivalencia": ("equivalencia", "equivalencia_informativa"),
+            "codigo": ("codigo", "codigo_act", "codificacion", "resolucion", "codigo_resolucion", "codigo_de_resolucion", "cod_act", "cod"),
+            "descripcion": ("descripcion", "detalle", "descripcion_resolucion", "descripcion_de_resolucion", "nombre"),
+            "peso": ("peso", "peso_act", "peso_de_resolucion", "peso_resolucion", "nivel", "complejidad"),
+            "equivalencia": ("equivalencia", "equivalencia_informativa", "equivalencia_act"),
         }
         from .common import _strip_accents
         def normalize_header(s):
