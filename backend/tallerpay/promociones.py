@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
 from .common import build_template, clean, now_iso, to_date
+from .payment_rules import payment_eligibility
 
 MAX_IMPORT_BYTES = 8 * 1024 * 1024
 PROMO_HEADERS = ["nombre", "cadena", "modelo", "categoria_resolucion", "linea", "producto",
@@ -81,14 +82,16 @@ def classify(ticket, promotions):
 
     NoPago tiene precedencia sobre cualquier promoción, incluso las vigentes.
     """
-    status = norm(ticket.get("estado"))
-    cause = norm(ticket.get("causa_no_solucion"))
-    solved = ticket.get("fecha_solucion")
-    subject = norm(ticket.get("asunto"))
-    if (not solved or (cause not in ("", "SIN ASIGNAR")) or
-            "ENTREGA" in subject or ticket.get("referencia_otro_ticket") is True):
+    eligibility = payment_eligibility(ticket)
+    # La exclusión del asunto SAP prevalece sobre cualquier promoción.
+    if eligibility["no_pagable"]:
         return {"clasificacion": "CS_NoPago", "promocion_id": None,
-                "motivo": "Ticket no pagable según las reglas de solución, causa, entrega o referencia"}
+                "motivo": ", ".join(eligibility["motivos"]),
+                "tickets_referenciados": eligibility["tickets_referenciados"]}
+    # Compatibilidad con evaluación manual explícita de tickets referenciados.
+    if ticket.get("referencia_otro_ticket") is True:
+        return {"clasificacion": "CS_NoPago", "promocion_id": None,
+                "motivo": "REFERENCIA_OTRO_TICKET"}
     matches = [p for p in promotions if promotion_match(p, ticket)]
     if not matches:
         return {"clasificacion": "CS_Exp", "promocion_id": None,
