@@ -236,7 +236,19 @@ def create_liquidaciones_router(db, current_user, effective_perms):
             {"$sort": {"nombre": 1}}
         ]
         docs = await db.tp_sap_tickets.aggregate(pipeline).to_list(10000)
-        return {"items": [{"codigo": x["_id"], "nombre": x["nombre"], "tickets": x["tickets"]} for x in docs]}
+        sap_counts = {clean(x["_id"]): x for x in docs}
+        # El selector muestra técnicos creados en el sistema que tienen tickets SAP en el mes.
+        catalog = await db.tool_technicians.find(
+            {"codigo": {"$in": list(sap_counts)}}, {"_id": 0}).to_list(5000)
+        items = []
+        for tech in catalog:
+            key = clean(tech.get("codigo"))
+            source = sap_counts.get(key)
+            if source:
+                items.append({"codigo": key,
+                              "nombre": " ".join(x for x in [clean(tech.get("nombre")), clean(tech.get("apellido"))] if x) or source["nombre"],
+                              "tickets": source["tickets"]})
+        return {"items": sorted(items, key=lambda x: x["nombre"])}
 
     @router.get("/liquidaciones/especiales")
     async def special_tariffs(tecnico_codigo: str, user: dict = Depends(current_user)):
