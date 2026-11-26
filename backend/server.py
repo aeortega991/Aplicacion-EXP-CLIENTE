@@ -125,6 +125,15 @@ PERMISSION_RESOURCES = [
     {"key": "ts_dashboard", "module": "Ticket servicio", "label": "Dashboard", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
     {"key": "ts_tablero", "module": "Ticket servicio", "label": "Tablero", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
     {"key": "ts_listado", "module": "Ticket servicio", "label": "Listado", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
+    {"key": "tallerpay", "module": "Pago a talleres", "label": "Acceso al módulo", "editable": False, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_dashboard", "module": "Pago a talleres", "label": "Dashboard", "editable": False, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_talleres", "module": "Pago a talleres", "label": "Talleres tercerizados", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_tarifarios", "module": "Pago a talleres", "label": "Tarifarios", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_codificador", "module": "Pago a talleres", "label": "Codificador ACT", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_promociones", "module": "Pago a talleres", "label": "Promociones comerciales", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_importacion", "module": "Pago a talleres", "label": "Importación SAP", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_liquidaciones", "module": "Pago a talleres", "label": "Liquidaciones", "editable": True, "roles": ["lider", "coordinador", "admin"]},
+    {"key": "tp_historial", "module": "Pago a talleres", "label": "Historial de pagos", "editable": False, "roles": ["lider", "coordinador", "admin"]},
     {"key": "documentos", "module": "Entregas de documentos", "label": "Acceso al módulo", "editable": False},
     {"key": "doc_nueva", "module": "Entregas de documentos", "label": "Nueva entrega", "editable": False},
     {"key": "doc_recibidas", "module": "Entregas de documentos", "label": "Recibidas (aceptar)", "editable": False},
@@ -4721,6 +4730,9 @@ app.add_event_handler("startup", _trips_startup)
 _ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, _send_email, APP_BASE_URL, EMAIL_FROM_NAME, _effective_perms)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
+from tallerpay.router import create_tallerpay_router  # noqa: E402
+_tallerpay_router = create_tallerpay_router(get_current_user, _effective_perms)
+app.include_router(_tallerpay_router)
 from documents import create_documents_router  # noqa: E402
 _docs_router, _docs_startup = create_documents_router(db, get_current_user, _effective_perms, _send_email, APP_BASE_URL, EMAIL_FROM_NAME, _pdf_brand_header)
 app.include_router(_docs_router)
