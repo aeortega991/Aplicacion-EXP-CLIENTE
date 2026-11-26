@@ -16,8 +16,8 @@ export default function LiquidacionesPage(){
   const canEdit=can("tp_liquidaciones","edit");
   const canEditClosed=["admin","coordinador"].includes(user?.role);
   const [period,setPeriod]=useState("2026-10");
-  const [workshops,setWorkshops]=useState([]),[workshopId,setWorkshopId]=useState("");
-  const [techs,setTechs]=useState([]),[selected,setSelected]=useState([]);
+  const [technicianCode,setTechnicianCode]=useState("");
+  const [techs,setTechs]=useState([]);
   const [kms,setKms]=useState({}),[preview,setPreview]=useState(null);
   const [drafts,setDrafts]=useState([]),[active,setActive]=useState(null);
   const [busy,setBusy]=useState(false),[reason,setReason]=useState("");
@@ -27,29 +27,28 @@ export default function LiquidacionesPage(){
 
   const refresh=useCallback(async()=>{
     try{
-      const [a,b,c]=await Promise.all([api.get("/tallerpay/talleres"),
+      const [b,c]=await Promise.all([
         api.get("/tallerpay/liquidaciones/tecnicos",{params:{periodo:period}}),
         api.get("/tallerpay/liquidaciones",{params:{periodo:period}})]);
-      setWorkshops(a.data.items||[]);setTechs(b.data.items||[]);setDrafts(c.data.items||[]);
+      setTechs(b.data.items||[]);setDrafts(c.data.items||[]);
     }catch(e){toast.error(formatApiError(e))}
   },[period]);
   useEffect(()=>{refresh()},[refresh]);
-  useEffect(()=>{setPreview(null);setSelected([]);setKms({});setActive(null)},[period]);
-  useEffect(()=>{setPreview(null);setKms({})},[workshopId,selected.length]);
+  useEffect(()=>{setPreview(null);setTechnicianCode("");setKms({});setActive(null)},[period]);
+  useEffect(()=>{setPreview(null);setKms({})},[technicianCode]);
   useEffect(()=>{
     api.get("/tallerpay/catalogo/lineas").then(r=>setLines(r.data.items||[])).catch(()=>{});
   },[]);
   const loadSpecial=useCallback(async()=>{
-    if(!workshopId){setSpecials([]);return}
-    try{const r=await api.get("/tallerpay/liquidaciones/especiales",{params:{taller_id:workshopId}});
+    if(!technicianCode){setSpecials([]);return}
+    try{const r=await api.get("/tallerpay/liquidaciones/especiales",{params:{tecnico_codigo:technicianCode}});
       setSpecials(r.data.items||[]);
     }catch(e){toast.error(formatApiError(e))}
-  },[workshopId]);
+  },[technicianCode]);
   useEffect(()=>{loadSpecial()},[loadSpecial]);
-  const workshop=workshops.find(x=>x.id===workshopId);
-  const permittedLines=lines.filter(x=>workshop?.lineas?.includes(x.codigo));
+  const permittedLines=lines.filter(x=>x.activo);
 
-  const getPayload=()=>({periodo:period,taller_id:workshopId,tecnicos:selected,kilometros:kms});
+  const getPayload=()=>({periodo:period,tecnico_codigo:technicianCode,kilometros:kms});
   const previewNow=async()=>{
     setBusy(true);
     try{const r=await api.post("/tallerpay/liquidaciones/preview",getPayload());setPreview(r.data);
@@ -95,12 +94,12 @@ export default function LiquidacionesPage(){
   const exportFile=async()=>{
     try{const r=await api.get(`/tallerpay/liquidaciones/${active.id}/excel`,{responseType:"blob"});
       const url=URL.createObjectURL(r.data),a=document.createElement("a");
-      a.href=url;a.download=`TallerPay_${active.codigo_sap}_${active.periodo}.xlsx`;a.click();URL.revokeObjectURL(url);
+      a.href=url;a.download=`TallerPay_${active.tecnico_codigo}_${active.periodo}.xlsx`;a.click();URL.revokeObjectURL(url);
     }catch(e){toast.error(formatApiError(e))}
   };
   const specialSave=async()=>{
     setBusy(true);
-    try{await api.put("/tallerpay/liquidaciones/especiales",{...special,taller_id:workshopId});
+    try{await api.put("/tallerpay/liquidaciones/especiales",{...special,tecnico_codigo:technicianCode});
       setSpecial({linea:"",categoria_resolucion:"",valor:""});await loadSpecial();toast.success("Tarifa especial registrada");
     }catch(e){toast.error(formatApiError(e))}finally{setBusy(false)}
   };
@@ -112,30 +111,24 @@ export default function LiquidacionesPage(){
   return <div className="p-4 sm:p-8 space-y-6" data-testid="tallerpay-liquidaciones">
     <div><p className="text-xs uppercase tracking-widest text-neutral-500">Pago a talleres</p>
       <h1 className="text-3xl font-bold">Liquidaciones</h1>
-      <p className="text-sm text-neutral-500">Selecciona taller y técnicos por cada liquidación. No existe una relación permanente técnico–taller.</p></div>
+      <p className="text-sm text-neutral-500">Selecciona un técnico del sistema y el mes de solución. Se liquidan únicamente los tickets asignados a ese técnico en SAP, usando sus propias tarifas.</p></div>
 
     <section className="p-5 bg-white rounded-lg border space-y-4">
-      <h2 className="font-semibold">1. Selección de período, taller y técnicos</h2>
+      <h2 className="font-semibold">1. Selección de período y técnico</h2>
       <div className="flex flex-wrap gap-3 items-end">
         <div className="space-y-1"><Label>Mes de solución</Label><Input type="month" value={period} onChange={e=>setPeriod(e.target.value)} className="w-44"/></div>
-        <div className="space-y-1"><Label>Taller que recibirá la liquidación</Label>
-          <Select value={workshopId||undefined} onValueChange={setWorkshopId}><SelectTrigger className="min-w-72"><SelectValue placeholder="Seleccionar taller"/></SelectTrigger>
-            <SelectContent>{workshops.filter(x=>x.activo).map(x=><SelectItem value={x.id} key={x.id}>{x.codigo_sap} · {x.nombre}</SelectItem>)}</SelectContent></Select>
+        <div className="space-y-1"><Label>Técnico a liquidar</Label>
+          <Select value={technicianCode||undefined} onValueChange={setTechnicianCode}>
+            <SelectTrigger className="min-w-72"><SelectValue placeholder="Seleccione un técnico de SAP"/></SelectTrigger>
+            <SelectContent>{techs.map(t=><SelectItem value={t.codigo} key={t.codigo}>{t.nombre||t.codigo} · {t.codigo} ({t.tickets} tickets)</SelectItem>)}</SelectContent>
+          </Select>
         </div>
       </div>
-      <div><Label>Técnicos de SAP en el período (selección independiente)</Label>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2 max-h-52 overflow-auto border rounded-md p-3">
-          {techs.map(x=><label className="text-sm flex gap-2 items-center" key={x.codigo}>
-            <input type="checkbox" checked={selected.includes(x.codigo)}
-              onChange={e=>setSelected(a=>e.target.checked?[...a,x.codigo]:a.filter(v=>v!==x.codigo))}/>
-            {x.nombre||x.codigo} ({x.tickets})</label>)}
-          {techs.length===0&&<span className="text-sm text-neutral-500">Importa los tickets SAP del período para habilitar técnicos.</span>}
-        </div>
-      </div>
-      <Button disabled={busy||!workshopId||!selected.length} onClick={previewNow}><Search className="w-4 h-4 mr-2"/>Preparar liquidación</Button>
+      <p className="text-sm text-neutral-500">La selección es individual; no se solicita taller ni se combinan tickets de varios técnicos.</p>
+      <Button disabled={busy||!technicianCode} onClick={previewNow}><Search className="w-4 h-4 mr-2"/>Preparar liquidación</Button>
     </section>
 
-    {workshopId&&<section className="bg-white rounded-lg border p-4 space-y-3">
+    {technicianCode&&<section className="bg-white rounded-lg border p-4 space-y-3">
       <h2 className="font-semibold">Tarifas especiales por resolución (por ejemplo, Instalación Nivel 1)</h2>
       <p className="text-sm text-neutral-500">Estas tarifas sustituyen SL/SM/SG para la resolución indicada; si hay promoción comercial aplicable, el precio de la promoción prevalece sobre ambas.</p>
       {canEdit&&<div className="flex flex-wrap gap-2">
@@ -160,7 +153,7 @@ export default function LiquidacionesPage(){
         </TableRow>)}</TableBody></Table></div>:
         <p className="text-sm text-neutral-500">Prepara una liquidación para consultar los tickets foráneos.</p>}
       <div className="flex flex-wrap gap-2">
-        {!active&&!!workshopId&&!!selected.length&&<Button variant="outline" onClick={previewNow} disabled={busy}>Recalcular con kilómetros</Button>}
+        {!active&&!!technicianCode&&<Button variant="outline" onClick={previewNow} disabled={busy}>Recalcular con kilómetros</Button>}
         {!!active&&editableKm&&<Button onClick={updateKm} disabled={busy}>Guardar kilómetros</Button>}
         {active?.estado==="CERRADO"&&canEditClosed&&<Input className="max-w-md" value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo obligatorio de modificación del cierre"/>}
       </div>
@@ -206,8 +199,8 @@ export default function LiquidacionesPage(){
 
     <section className="bg-white rounded-lg border p-4 space-y-3">
       <h2 className="font-semibold">Historial de liquidaciones del mes</h2>
-      <div className="overflow-auto"><Table><TableHeader><TableRow><TableHead>Taller</TableHead><TableHead>Estado</TableHead><TableHead>Tickets</TableHead><TableHead>Versión</TableHead><TableHead>Acción</TableHead></TableRow></TableHeader>
-        <TableBody>{drafts.map(x=><TableRow key={x.id}><TableCell>{x.taller_nombre}</TableCell><TableCell>{x.estado}</TableCell><TableCell>{Object.values(x.totales||{}).reduce((a,b)=>a+(b.tickets||0),0)}</TableCell><TableCell>{x.version}</TableCell><TableCell><Button variant="outline" size="sm" onClick={()=>open(x.id)}>Abrir</Button></TableCell></TableRow>)}</TableBody></Table></div>
+      <div className="overflow-auto"><Table><TableHeader><TableRow><TableHead>Técnico</TableHead><TableHead>Estado</TableHead><TableHead>Tickets</TableHead><TableHead>Versión</TableHead><TableHead>Acción</TableHead></TableRow></TableHeader>
+        <TableBody>{drafts.map(x=><TableRow key={x.id}><TableCell>{x.tecnico_nombre || x.tecnico_codigo}</TableCell><TableCell>{x.estado}</TableCell><TableCell>{Object.values(x.totales||{}).reduce((a,b)=>a+(b.tickets||0),0)}</TableCell><TableCell>{x.version}</TableCell><TableCell><Button variant="outline" size="sm" onClick={()=>open(x.id)}>Abrir</Button></TableCell></TableRow>)}</TableBody></Table></div>
     </section>
   </div>;
 }
