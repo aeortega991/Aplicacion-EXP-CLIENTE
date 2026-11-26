@@ -73,6 +73,13 @@ def _cells(row):
     return cells
 
 
+def is_foraneo(route, code):
+    from unicodedata import normalize, category
+    raw = normalize("NFD", f"{route} {code}".upper())
+    normalized = "".join(c for c in raw if category(c) != "Mn")
+    return "FORAN" in normalized
+
+
 def parse_sap_xml(content):
     if len(content) > MAX_BYTES:
         raise ValueError("El archivo supera el máximo de 12 MB")
@@ -140,7 +147,7 @@ def parse_sap_xml(content):
                     errors.append(f"Fila {excel_row}: segunda fecha de solución inválida")
                     continue
             record["periodo_solucion"] = record["fecha_solucion"][:7] if record["fecha_solucion"] else None
-            record["es_foraneo"] = "FORAN" in (record["ruta"] + " " + record["ruta_codigo"]).upper()
+            record["es_foraneo"] = is_foraneo(record["ruta"], record["ruta_codigo"])
             record["facturado"] = record["tipo_cobertura"].strip().upper() == "FACTURADO"
             record["fila_origen"] = excel_row
             tickets.append(record)
