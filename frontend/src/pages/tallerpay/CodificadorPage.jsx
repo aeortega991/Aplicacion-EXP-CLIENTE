@@ -40,6 +40,20 @@ export default function CodificadorPage() {
     } catch(e) { toast.error(formatApiError(e)); } finally { setBusy(false); }
   };
 
+  const downloadTemplate = async () => {
+    try {
+      const response = await api.get("/tallerpay/act/template", { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "plantilla_codificador_act.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
   const upload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     setBusy(true); setResult(null);
@@ -76,12 +90,14 @@ export default function CodificadorPage() {
     </section>
     <section className="rounded-lg border bg-white p-5 space-y-3">
       <h2 className="font-semibold">Importar Codificador ACT</h2>
-      <p className="text-sm text-neutral-600">Archivo .xlsx con columnas de código ACT y peso; opcionales: descripción y equivalencia. No se importará ninguna fila si existen errores.</p>
+      <p className="text-sm text-neutral-600">Utiliza la hoja «Codificador ACT» del archivo original o descarga la plantilla simplificada. Solo se leen: Producto, Código de resolución, Categoría de resolución y Peso. No se importan causas, equivalencias ni tiempos de atención.</p>
+      <p className="text-xs text-amber-700">Peso 0: queda pendiente, sin asignación de tarifa ni pago automático.</p>
+      <Button type="button" variant="outline" onClick={downloadTemplate}>Descargar plantilla (4 columnas)</Button>
       {canEdit && <label className="inline-flex items-center gap-2 rounded-md border px-4 py-2 cursor-pointer text-sm hover:bg-neutral-50">
         <FileUp className="w-4 h-4"/>{busy?"Procesando…":"Seleccionar Excel"}<input type="file" accept=".xlsx" className="hidden" disabled={busy} onChange={upload}/>
       </label>}
       {result && <div role="status" className="rounded-md bg-neutral-50 border p-3 text-sm">
-        <div>{result.confirmed ? "Importación completada" : "No se guardaron registros"} · {result.inserted} nuevos · {result.updated} actualizados</div>
+        <div>{result.confirmed ? "Importación completada" : "No se guardaron registros"} · {result.inserted} nuevos · {result.updated} actualizados · {result.pending||0} sin peso tarifable</div>
         {result.errors?.length>0 && <ul className="mt-2 text-red-700 list-disc pl-5">{result.errors.map((err,i)=><li key={i}>{err}</li>)}</ul>}
       </div>}
     </section>
@@ -91,10 +107,10 @@ export default function CodificadorPage() {
         <div className="relative"><Search className="absolute top-2.5 left-2 w-4 h-4 text-neutral-400"/><Input className="pl-8" placeholder="Buscar código o descripción" value={query} onChange={e=>setQuery(e.target.value)}/></div>
       </div>
       <div className="overflow-auto max-h-[480px]"><Table><TableHeader><TableRow>
-        <TableHead>Código</TableHead><TableHead>Descripción</TableHead><TableHead>Peso original</TableHead><TableHead>Tarifa</TableHead><TableHead>Equivalencia</TableHead>
+        <TableHead>Producto</TableHead><TableHead>Código resolución</TableHead><TableHead>Categoría resolución</TableHead><TableHead>Peso ACT</TableHead><TableHead>Nivel tarifa</TableHead>
       </TableRow></TableHeader><TableBody>
-        {shown.map(item=><TableRow key={item.codigo}><TableCell className="font-mono">{item.codigo}</TableCell><TableCell>{item.descripcion}</TableCell>
-          <TableCell>{item.peso_original}</TableCell><TableCell className="font-semibold">{item.nivel_tarifario}</TableCell><TableCell>{item.equivalencia||"—"}</TableCell></TableRow>)}
+        {shown.map(item=><TableRow key={item.codigo}><TableCell>{item.producto||"—"}</TableCell><TableCell className="font-mono">{item.codigo}</TableCell><TableCell>{item.descripcion}</TableCell>
+          <TableCell>{item.peso_original}</TableCell><TableCell className="font-semibold">{item.nivel_tarifario||"No tarifable"}</TableCell></TableRow>)}
         {shown.length===0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-neutral-500">Sin registros</TableCell></TableRow>}
       </TableBody></Table></div>
     </section>
