@@ -26,6 +26,7 @@ ALLOWED_MEDIA = {
     "mp4": "video/mp4", "mov": "video/quicktime",
 }
 ESTADOS = ["Creado", "Asignado", "Info cargada", "Bloqueado", "Cerrado"]
+CERRADO = "Cerrado"
 TECNICO, ANALISTA, ADMIN = "tecnico", "analista_tecnico", "admin"
 TS_ROLES = (TECNICO, ANALISTA, ADMIN)
 LOCAL_TZ = timezone(timedelta(hours=-5))  # Ecuador
@@ -199,6 +200,10 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
             "user_id": user.get("id"), "user_name": user.get("name"), "created_at": _now(),
         })
 
+    def _ensure_open(t: dict):
+        if t.get("estado") == CERRADO:
+            raise HTTPException(status_code=400, detail="El ticket está cerrado y no puede ser editado")
+
     async def _active_analyst(uid: Optional[str]) -> Optional[dict]:
         if not uid:
             return None
@@ -326,13 +331,15 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         media = await db.ts_media.find({"ticket_id": tid, "is_deleted": False}, {"_id": 0, "storage_path": 0}).to_list(50)
         history = await db.ts_status_history.find({"ticket_id": tid}, {"_id": 0}).sort("created_at", 1).to_list(500)
         role, uid = user["role"], user["id"]
+        abierto = t["estado"] != CERRADO
         t.update({
             "media": media, "history": history,
             "perms": {
-                "can_change_state": role in (ADMIN, ANALISTA),
-                "can_respond": role == ANALISTA and t.get("analista_id") == uid,
-                "can_chat": role != ADMIN and t["estado"] != "Cerrado" and uid in (t.get("tecnico_id"), t.get("analista_id")),
-                "can_reassign": role == ADMIN,
+                "locked": not abierto,
+                "can_change_state": abierto and role in (ADMIN, ANALISTA),
+                "can_respond": abierto and role == ANALISTA and t.get("analista_id") == uid,
+                "can_chat": abierto and role != ADMIN and uid in (t.get("tecnico_id"), t.get("analista_id")),
+                "can_reassign": abierto and role == ADMIN,
             },
         })
         return t
@@ -355,6 +362,7 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         if user["role"] not in (ANALISTA, ADMIN):
             raise HTTPException(status_code=403, detail="No tienes permiso para cambiar el estado")
         t = await _get_ticket(tid, user)
+        _ensure_open(t)
         if payload.estado not in ESTADOS:
             raise HTTPException(status_code=400, detail="Estado inválido")
         if payload.estado == t["estado"]:
@@ -362,8 +370,10 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         if payload.estado in ("Asignado", "Info cargada") and not t.get("analista_id"):
             raise HTTPException(status_code=400, detail="Asigne un analista antes de cambiar a este estado")
         now = _now()
-        upd = {"estado": payload.estado, "updated_at": now, "closed_at": now if payload.estado == "Cerrado" else None}
-        await db.service_tickets.update_one({"id": tid}, {"$set": upd})
+        upd = {"estado": payload.estado, "updated_at": now, "closed_at": now if payload.estado == CERRADO else None}
+        res = await db.service_tickets.update_one({"id": tid, "estado": {"$ne": CERRADO}}, {"$set": upd})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=400, detail="El ticket está cerrado y no puede ser editado")
         await _log_state(tid, t["estado"], payload.estado, user)
         t.update(upd)
         return t
@@ -373,6 +383,7 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         if user["role"] != ANALISTA:
             raise HTTPException(status_code=403, detail="Solo el analista asignado puede registrar la respuesta técnica")
         t = await _get_ticket(tid, user)
+        _ensure_open(t)
         links = list(dict.fromkeys(l.strip() for l in payload.links if l and l.strip()))
         for link in links:
             p = urlparse(link)
@@ -385,20 +396,25 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         prev = {l["url"]: l for l in t.get("respuesta_links", [])}
         new_links = [prev.get(u) or {"url": u, "added_at": now, "added_by": user["id"]} for u in links]
         upd = {"respuesta": texto, "respuesta_links": new_links, "respuesta_updated_at": now, "updated_at": now}
-        await db.service_tickets.update_one({"id": tid}, {"$set": upd})
+        res = await db.service_tickets.update_one({"id": tid, "estado": {"$ne": CERRADO}}, {"$set": upd})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=400, detail="El ticket está cerrado y no puede ser editado")
         t.update(upd)
         return t
 
     @r.put("/tickets/{tid}/asignar")
     async def reassign(tid: str, payload: AsignarIn, user: dict = Depends(require_admin)):
         t = await _get_ticket(tid, user)
+        _ensure_open(t)
         analyst = await _active_analyst(payload.analista_id)
         if not analyst:
             raise HTTPException(status_code=400, detail="El usuario seleccionado no es un analista técnico activo")
         upd = {"analista_id": analyst["id"], "analista_nombre": analyst.get("name"), "updated_at": _now()}
         if t["estado"] == "Creado":
             upd["estado"] = "Asignado"
-        await db.service_tickets.update_one({"id": tid}, {"$set": upd})
+        res = await db.service_tickets.update_one({"id": tid, "estado": {"$ne": CERRADO}}, {"$set": upd})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=400, detail="El ticket está cerrado y no puede ser editado")
         if upd.get("estado"):
             await _log_state(tid, "Creado", "Asignado", user)
         t.update(upd)
@@ -415,7 +431,7 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
         t = await _get_ticket(tid, user)
         if user["role"] == ADMIN or user["id"] not in (t.get("tecnico_id"), t.get("analista_id")):
             raise HTTPException(status_code=403, detail="Solo el técnico solicitante y el analista asignado pueden escribir")
-        if t["estado"] == "Cerrado":
+        if t["estado"] == CERRADO:
             raise HTTPException(status_code=400, detail="El ticket está cerrado; no se permiten nuevos mensajes")
         texto = payload.texto.strip()
         if not texto:

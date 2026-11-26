@@ -5,6 +5,10 @@ import api, { formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ArrowLeft, Lock } from "lucide-react";
 import { ESTADOS, StatusBadge, fmtDT } from "./estados";
 import { TicketMedia } from "./TicketMedia";
@@ -41,12 +45,14 @@ const TicketInfo = ({ t }) => (
 const StatePanel = ({ t, onChanged }) => {
   const [estado, setEstado] = useState(t.estado);
   const [saving, setSaving] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   useEffect(() => setEstado(t.estado), [t.estado]);
   const save = async () => {
     setSaving(true);
     try { await api.put(`/ts/tickets/${t.id}/estado`, { estado }); toast.success(`Estado actualizado a ${estado}`); onChanged(); }
-    catch (e) { toast.error(formatApiError(e)); } finally { setSaving(false); }
+    catch (e) { toast.error(formatApiError(e)); } finally { setSaving(false); setConfirmClose(false); }
   };
+  const onUpdate = () => (estado === "Cerrado" ? setConfirmClose(true) : save());
   return (
     <section className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3" data-testid="ts-state-panel">
       <h2 className="text-base font-semibold">Estado</h2>
@@ -55,8 +61,22 @@ const StatePanel = ({ t, onChanged }) => {
           <SelectTrigger data-testid="ts-state-select"><SelectValue /></SelectTrigger>
           <SelectContent>{ESTADOS.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
         </Select>
-        <Button onClick={save} disabled={saving || estado === t.estado} className="bg-[#0033A0] hover:bg-[#002a85]" data-testid="ts-state-save">Actualizar</Button>
+        <Button onClick={onUpdate} disabled={saving || estado === t.estado} className="bg-[#0033A0] hover:bg-[#002a85]" data-testid="ts-state-save">Actualizar</Button>
       </div>
+      <AlertDialog open={confirmClose} onOpenChange={setConfirmClose}>
+        <AlertDialogContent data-testid="ts-close-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cerrar el ticket {t.numero}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Una vez cerrado, el ticket queda bloqueado: no se podrá cambiar su estado, editar la respuesta técnica, reasignarlo ni enviar mensajes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); save(); }} disabled={saving} data-testid="ts-close-confirm-btn">Sí, cerrar ticket</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 };
@@ -131,8 +151,17 @@ export default function TicketDetail() {
           <TicketResponse ticket={t} onSaved={refresh} />
         </div>
         <div className="space-y-4">
+          {t.perms?.locked && (
+            <section className="rounded-lg border border-neutral-300 bg-neutral-100 p-4 flex gap-3" data-testid="ts-locked-banner">
+              <Lock className="w-5 h-5 text-neutral-500 shrink-0" />
+              <div className="text-sm">
+                <div className="font-semibold">Ticket cerrado</div>
+                <div className="text-neutral-600">Este ticket fue cerrado{t.closed_at ? ` el ${fmtDT(t.closed_at)}` : ""} y ya no puede ser editado.</div>
+              </div>
+            </section>
+          )}
           {t.perms?.can_change_state && <StatePanel t={t} onChanged={refresh} />}
-          {user?.role === "admin" && <ReassignPanel t={t} onChanged={refresh} />}
+          {user?.role === "admin" && t.perms?.can_reassign && <ReassignPanel t={t} onChanged={refresh} />}
           <TicketChat ticket={t} onSent={reload} />
           <History items={t.history || []} />
         </div>
