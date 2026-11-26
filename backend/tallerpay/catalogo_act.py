@@ -108,7 +108,7 @@ class WeightIn(BaseModel):
 
 
 class MatrixIn(BaseModel):
-    taller_id: str
+    tecnico_codigo: str
     linea: str
     nivel: str
     valor: str
@@ -141,6 +141,7 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
         await db.tp_act_codes.create_index("codigo", unique=True)
         await db.tp_act_imports.create_index("id", unique=True)
         await db.tp_tariff_matrix.create_index([("taller_id", 1), ("linea", 1), ("nivel", 1)], unique=True)
+        await db.tp_technician_tariffs.create_index([("tecnico_codigo", 1), ("linea", 1), ("nivel", 1)], unique=True)
         for key, name in DEFAULT_LINES:
             await db.tp_lines.update_one({"codigo": key},
                 {"$setOnInsert": {"codigo": key, "nombre": name, "activo": True, "sistema": True}}, upsert=True)
@@ -281,37 +282,43 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
         return result
 
     @router.get("/matriz-tarifaria")
-    async def matrix(taller_id: str, user: dict = Depends(get_current_user)):
+    async def matrix(tecnico_codigo: str, user: dict = Depends(get_current_user)):
         await guard(user, "tp_tarifarios")
-        rows = await db.tp_tariff_matrix.find({"taller_id": taller_id}, {"_id": 0}).to_list(2000)
+        rows = await db.tp_technician_tariffs.find(
+            {"tecnico_codigo": clean(tecnico_codigo)}, {"_id": 0}).to_list(2000)
         return {"items": rows, "levels": LEVELS}
 
     @router.put("/matriz-tarifaria")
     async def save_matrix(payload: MatrixIn, user: dict = Depends(get_current_user)):
         await guard(user, "tp_tarifarios", True)
-        w = await db.tp_workshops.find_one({"id": payload.taller_id}, {"_id": 0})
-        if not w: raise HTTPException(404, "Taller no encontrado")
-        if not w.get("activo"): raise HTTPException(400, "Taller inactivo")
-        if payload.linea not in w.get("lineas", []): raise HTTPException(400, "Línea no asignada al taller")
+        key = clean(payload.tecnico_codigo)
+        technician = await db.tool_technicians.find_one({"codigo": key}, {"_id": 0})
+        if not technician:
+            raise HTTPException(404, "Técnico no registrado")
         if not await db.tp_lines.find_one({"codigo": payload.linea, "activo": True}):
             raise HTTPException(400, "Línea no registrada o inactiva")
-        if payload.nivel not in LEVELS: raise HTTPException(400, "Nivel no válido")
-        try: valor = money_number(payload.valor)
-        except ValueError as e: raise HTTPException(400, str(e))
+        if payload.nivel not in LEVELS:
+            raise HTTPException(400, "Nivel no válido")
+        try:
+            valor = money_number(payload.valor)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         date = payload.vigente_desde
         if date:
             from .common import to_date
             try: date = to_date(date)
-            except ValueError as e: raise HTTPException(400, str(e))
-        old = await db.tp_tariff_matrix.find_one({"taller_id": w["id"], "linea": payload.linea, "nivel": payload.nivel}, {"_id": 0})
-        event = {"fecha": now_iso(), "usuario": actor(user), "valor_anterior": old.get("valor") if old else None,
-                 "valor_nuevo": valor}
-        query = {"taller_id": w["id"], "linea": payload.linea, "nivel": payload.nivel}
-        await db.tp_tariff_matrix.update_one(query,
-            {"$set": {"valor": valor, "vigente_desde": date, "updated_at": now_iso(), "updated_by": actor(user)},
-             "$setOnInsert": {"id": str(uuid.uuid4()), "codigo_sap": w["codigo_sap"]},
-             "$push": {"historial": event}}, upsert=True)
-        return await db.tp_tariff_matrix.find_one(query, {"_id": 0})
+            except ValueError as exc: raise HTTPException(400, str(exc))
+        query = {"tecnico_codigo": key, "linea": payload.linea, "nivel": payload.nivel}
+        old = await db.tp_technician_tariffs.find_one(query, {"_id": 0})
+        event = {"fecha": now_iso(), "usuario": actor(user),
+                 "valor_anterior": old.get("valor") if old else None, "valor_nuevo": valor}
+        await db.tp_technician_tariffs.update_one(query, {
+            "$set": {"valor": valor, "vigente_desde": date, "updated_at": now_iso(),
+                     "updated_by": actor(user)},
+            "$setOnInsert": {"id": str(uuid.uuid4())},
+            "$push": {"historial": event},
+        }, upsert=True)
+        return await db.tp_technician_tariffs.find_one(query, {"_id": 0})
 
     @router.get("/matriz-tarifaria/legado")
     async def legacy(taller_id: str, user: dict = Depends(get_current_user)):
