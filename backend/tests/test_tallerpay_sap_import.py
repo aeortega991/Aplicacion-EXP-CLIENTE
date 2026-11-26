@@ -82,6 +82,24 @@ class SAPXLSXTests(unittest.TestCase):
         self.assertEqual(len(result["tickets"]), 1)
         self.assertEqual(len(result["errores"]), 1)
 
+    def test_invalid_start_date_is_warning_not_error(self):
+        wb = Workbook()
+        ws = wb.active
+        header, row = make_rows()
+        row[28] = "#"
+        ws.append(header)
+        ws.append(row)
+        out = io.BytesIO()
+        wb.save(out)
+        result = parse_sap_xlsx(out.getvalue())
+        self.assertEqual(result["errores"], [])
+        self.assertEqual(len(result["tickets"]), 1)
+        self.assertIsNone(result["tickets"][0]["inicio_prometida"])
+        self.assertEqual(result["tickets"][0]["inicio_prometida_original"], "#")
+        summary = preview_summary(result)
+        self.assertEqual(summary["total_advertencias"], 1)
+        self.assertEqual(summary["total_validos"], 1)
+
     def test_reject_unsupported_extension(self):
         with self.assertRaises(ValueError):
             parse_sap_file(self.xlsx(), "sap.csv")
