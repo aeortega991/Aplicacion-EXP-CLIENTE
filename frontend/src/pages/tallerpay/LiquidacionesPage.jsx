@@ -146,7 +146,7 @@ export default function LiquidacionesPage(){
         {kmRows.map(x=><TableRow key={x.ticket_id}>
           <TableCell>{x.ticket_id}</TableCell><TableCell>{x.tecnico}</TableCell><TableCell>{x.ruta}</TableCell><TableCell>{x.clasificacion}</TableCell>
           <TableCell><Input type="number" step=".01" min="0" disabled={!editableKm} className="w-32" placeholder="0.00" value={kms[x.ticket_id]??""}
-            onChange={e=>{setKms(p=>({...p,[x.ticket_id]:e.target.value}));if(!active)setPreview(null)}}/></TableCell>
+            onChange={e=>setKms(p=>({...p,[x.ticket_id]:e.target.value}))}/></TableCell>
         </TableRow>)}</TableBody></Table></div>:
         <p className="text-sm text-neutral-500">Prepara una liquidación para consultar los tickets foráneos.</p>}
       <div className="flex flex-wrap gap-2">
