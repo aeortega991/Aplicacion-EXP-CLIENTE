@@ -30,11 +30,11 @@ class SettlementTests(unittest.TestCase):
             "precio_promocional": "10.00"
         }]
 
-    def calculate(self, promos=None, kms=None, ticket=None):
+    def calculate(self, promos=None, kms=None, ticket=None, tarifa_km="0.20"):
         return create_line(ticket or self.ticket, self.workshop, self.products, self.act,
                            self.tariffs, self.special,
                            self.promotions if promos is None else promos,
-                           {"1435400": "20"} if kms is None else kms)
+                           {"1435400": "20"} if kms is None else kms, tarifa_km)
 
     def test_commercial_promotion_replaces_standard(self):
         row = self.calculate()
@@ -57,6 +57,27 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(row["valor_km"], "0.00")
         self.assertEqual(row["total"], "10.00")
 
+    def test_different_technicians_can_have_different_km_rates(self):
+        first = self.calculate(tarifa_km="0.35")
+        second = self.calculate(tarifa_km="0.12")
+        self.assertEqual(first["tarifa_km"], "0.35")
+        self.assertEqual(second["tarifa_km"], "0.12")
+        self.assertEqual(first["valor_km"], "7.00")
+        self.assertEqual(second["valor_km"], "2.40")
+        self.assertEqual(first["total"], "17.00")
+        self.assertEqual(second["total"], "12.40")
+
+    def test_missing_technician_rate_prevents_foraneo_payment(self):
+        row = self.calculate(tarifa_km=None)
+        self.assertEqual(row["total"], "0.00")
+        self.assertTrue(any("tarifa por kilómetro" in text for text in row["errores"]))
+
+    def test_urban_ticket_does_not_require_km_rate(self):
+        urban = {**self.ticket, "es_foraneo": False}
+        row = self.calculate(ticket=urban, kms={}, tarifa_km=None)
+        self.assertEqual(row["total"], "10.00")
+        self.assertEqual(row["valor_km"], "0.00")
+
     def test_missing_km_prevents_payment(self):
         row = self.calculate(kms={})
         self.assertTrue(any("kilometraje" in e for e in row["errores"]))
@@ -70,7 +91,7 @@ class SettlementTests(unittest.TestCase):
 
     def test_missing_line_or_act_blocks(self):
         row = create_line(self.ticket, self.workshop, {}, self.act, self.tariffs,
-                          self.special, self.promotions, {"1435400":"0"})
+                          self.special, self.promotions, {"1435400":"0"}, "0.20")
         self.assertTrue(any("Producto" in e for e in row["errores"]))
 
     def test_totals_by_sheet(self):
