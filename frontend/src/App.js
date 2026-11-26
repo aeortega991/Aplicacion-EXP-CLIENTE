@@ -67,14 +67,26 @@ const RequireAccess = ({ resource, children }) => {
 
 const TS_ROLES = ["tecnico", "lider", "analista_tecnico", "admin"];
 const RequireTicketRole = ({ children }) => {
-  const { user } = useAuth();
-  if (!TS_ROLES.includes(user?.role)) return <Navigate to="/" replace />;
+  const { user, can, loading } = useAuth();
+  if (loading) return <div className="p-10 text-sm text-muted-foreground">Cargando…</div>;
+  if (!TS_ROLES.includes(user?.role) || !can("tickets", "view")) return <Navigate to="/" replace />;
   return children;
 };
 
+const TsIndex = () => {
+  const { can } = useAuth();
+  if (can("ts_dashboard", "view")) return <TicketsDashboard />;
+  if (can("ts_tablero", "view")) return <Navigate to="/tickets/tablero" replace />;
+  if (can("ts_listado", "view")) return <Navigate to="/tickets/listado" replace />;
+  return <div className="p-10 text-sm text-neutral-500">No tienes secciones habilitadas en este módulo.</div>;
+};
+
 const DocsIndex = () => {
-  const { user } = useAuth();
-  return <Navigate to={user?.role === "admin" ? "/documentos/dashboard" : "/documentos/recibidas"} replace />;
+  const { user, can } = useAuth();
+  if (user?.role === "admin") return <Navigate to="/documentos/dashboard" replace />;
+  const first = [["doc_recibidas", "recibidas"], ["doc_enviadas", "enviadas"], ["doc_nueva", "nueva"]].find(([k]) => can(k, "view"));
+  if (!first) return <div className="p-10 text-sm text-neutral-500">No tienes secciones habilitadas en este módulo.</div>;
+  return <Navigate to={`/documentos/${first[1]}`} replace />;
 };
 
 function App() {
@@ -126,17 +138,17 @@ function App() {
             <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="/tickets" element={<Protected><RequireTicketRole><TicketsLayout /></RequireTicketRole></Protected>}>
-            <Route index element={<TicketsDashboard />} />
-            <Route path="tablero" element={<TicketsBoard />} />
-            <Route path="listado" element={<TicketsList />} />
+            <Route index element={<TsIndex />} />
+            <Route path="tablero" element={<RequireAccess resource="ts_tablero"><TicketsBoard /></RequireAccess>} />
+            <Route path="listado" element={<RequireAccess resource="ts_listado"><TicketsList /></RequireAccess>} />
             <Route path="t/:id" element={<TicketDetail />} />
             <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
           </Route>
           <Route path="/documentos" element={<Protected><RequireAccess resource="documentos"><DocumentosLayout /></RequireAccess></Protected>}>
             <Route index element={<DocsIndex />} />
-            <Route path="nueva" element={<NuevaEntrega />} />
-            <Route path="recibidas" element={<EntregasList key="recibidas" scope="recibidas" />} />
-            <Route path="enviadas" element={<EntregasList key="enviadas" scope="enviadas" />} />
+            <Route path="nueva" element={<RequireAccess resource="doc_nueva"><NuevaEntrega /></RequireAccess>} />
+            <Route path="recibidas" element={<RequireAccess resource="doc_recibidas"><EntregasList key="recibidas" scope="recibidas" /></RequireAccess>} />
+            <Route path="enviadas" element={<RequireAccess resource="doc_enviadas"><EntregasList key="enviadas" scope="enviadas" /></RequireAccess>} />
             <Route path="todas" element={<AdminOnly><EntregasList key="todas" scope="todas" /></AdminOnly>} />
             <Route path="dashboard" element={<AdminOnly><DocsDashboard /></AdminOnly>} />
           </Route>

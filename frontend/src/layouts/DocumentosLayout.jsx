@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { FileSignature, ArrowLeft, LogOut, FilePlus2, Inbox, Send, Files, LayoutDashboard } from "lucide-react";
 
 export default function DocumentosLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const [pending, setPending] = useState(0);
@@ -54,14 +54,14 @@ export default function DocumentosLayout() {
           {isAdmin && (
             <NavLink to="/documentos/dashboard" className={tab} data-testid="docs-nav-dashboard"><LayoutDashboard className="w-4 h-4" /> Dashboard</NavLink>
           )}
-          <NavLink to="/documentos/nueva" className={tab} data-testid="docs-nav-nueva"><FilePlus2 className="w-4 h-4" /> Nueva entrega</NavLink>
-          <NavLink to="/documentos/recibidas" className={tab} data-testid="docs-nav-recibidas">
+          {can("doc_nueva") && <NavLink to="/documentos/nueva" className={tab} data-testid="docs-nav-nueva"><FilePlus2 className="w-4 h-4" /> Nueva entrega</NavLink>}
+          {can("doc_recibidas") && <NavLink to="/documentos/recibidas" className={tab} data-testid="docs-nav-recibidas">
             <Inbox className="w-4 h-4" /> Recibidas
             {pending > 0 && (
               <span className="ml-0.5 min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center" data-testid="docs-pending-badge">{pending}</span>
             )}
-          </NavLink>
-          <NavLink to="/documentos/enviadas" className={tab} data-testid="docs-nav-enviadas"><Send className="w-4 h-4" /> Enviadas</NavLink>
+          </NavLink>}
+          {can("doc_enviadas") && <NavLink to="/documentos/enviadas" className={tab} data-testid="docs-nav-enviadas"><Send className="w-4 h-4" /> Enviadas</NavLink>}
           {isAdmin && (
             <NavLink to="/documentos/todas" className={tab} data-testid="docs-nav-todas"><Files className="w-4 h-4" /> Todas</NavLink>
           )}

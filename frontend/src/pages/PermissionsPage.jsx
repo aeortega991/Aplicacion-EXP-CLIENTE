@@ -106,6 +106,9 @@ export default function PermissionsPage() {
                       <td className="px-4 py-2.5 text-neutral-800">{res.label}</td>
                       {roles.map((role) => {
                         const cell = matrix[role]?.[res.key] || { view: false, edit: false };
+                        if (res.roles && !res.roles.includes(role)) {
+                          return <td key={role} className="px-3 py-2.5 text-center text-neutral-300" title="No aplica para este rol" data-testid={`perm-${role}-${res.key}-na`}>—</td>;
+                        }
                         return (
                           <td key={role} className="px-3 py-2.5">
                             <div className="flex items-center justify-center gap-3">

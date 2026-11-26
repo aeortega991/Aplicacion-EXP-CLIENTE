@@ -13,7 +13,7 @@ const EMPTY_DATA = { items: [], counts: {}, total: 0, sin_asignar: 0, max_mb: 25
 const FILTER_PATHS = ["/tickets", "/tickets/tablero", "/tickets/listado"];
 
 export default function TicketsLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -67,9 +67,9 @@ export default function TicketsLayout() {
           <Button variant="outline" size="icon" onClick={() => { logout(); navigate("/login"); }} data-testid="ts-logout"><LogOut className="w-4 h-4" /></Button>
         </div>
         <nav className="max-w-7xl mx-auto px-3 sm:px-6 pb-2 flex gap-1 overflow-x-auto" data-testid="ts-nav">
-          <NavLink to="/tickets" end className={tab} data-testid="ts-nav-dashboard"><LayoutDashboard className="w-4 h-4" /> Dashboard</NavLink>
-          <NavLink to="/tickets/tablero" className={tab} data-testid="ts-nav-tablero"><Columns3 className="w-4 h-4" /> Tablero</NavLink>
-          <NavLink to="/tickets/listado" className={tab} data-testid="ts-nav-listado"><List className="w-4 h-4" /> Listado</NavLink>
+          {can("ts_dashboard") && <NavLink to="/tickets" end className={tab} data-testid="ts-nav-dashboard"><LayoutDashboard className="w-4 h-4" /> Dashboard</NavLink>}
+          {can("ts_tablero") && <NavLink to="/tickets/tablero" className={tab} data-testid="ts-nav-tablero"><Columns3 className="w-4 h-4" /> Tablero</NavLink>}
+          {can("ts_listado") && <NavLink to="/tickets/listado" className={tab} data-testid="ts-nav-listado"><List className="w-4 h-4" /> Listado</NavLink>}
           {user?.role === "admin" && (
             <NavLink to="/tickets/ciudades" className={tab} data-testid="ts-nav-ciudades"><MapPinned className="w-4 h-4" /> Ciudades</NavLink>
           )}

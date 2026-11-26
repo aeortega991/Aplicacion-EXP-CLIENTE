@@ -121,8 +121,17 @@ PERMISSION_RESOURCES = [
     {"key": "gas_alertas", "module": "Gastos", "label": "Alertas", "editable": False},
     {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": True},
     {"key": "gas_reportes", "module": "Gastos", "label": "Reportes", "editable": False},
+    {"key": "tickets", "module": "Ticket servicio", "label": "Acceso al módulo", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
+    {"key": "ts_dashboard", "module": "Ticket servicio", "label": "Dashboard", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
+    {"key": "ts_tablero", "module": "Ticket servicio", "label": "Tablero", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
+    {"key": "ts_listado", "module": "Ticket servicio", "label": "Listado", "editable": False, "roles": ["tecnico", "lider", "analista_tecnico"]},
     {"key": "documentos", "module": "Entregas de documentos", "label": "Acceso al módulo", "editable": False},
+    {"key": "doc_nueva", "module": "Entregas de documentos", "label": "Nueva entrega", "editable": False},
+    {"key": "doc_recibidas", "module": "Entregas de documentos", "label": "Recibidas (aceptar)", "editable": False},
+    {"key": "doc_enviadas", "module": "Entregas de documentos", "label": "Enviadas", "editable": False},
 ]
+# Recursos limitados a ciertos roles (para el resto no aplican y siempre quedan sin acceso)
+_ROLE_LIMITED = {r["key"]: set(r["roles"]) for r in PERMISSION_RESOURCES if r.get("roles")}
 MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico", "analista_tecnico"]
 VEH_MODULE_RESOURCE = {
     "flota": "veh_flota", "seguros": "veh_seguros", "impuestos": "veh_impuestos",
@@ -138,7 +147,9 @@ def _default_perms_for_role(role: str) -> dict:
     Técnico: sin Herramientas; en Vehículos solo lectura; solo registra Rutas (sin ver listado)."""
     if role == "analista_tecnico":
         perms = {r["key"]: {"view": False, "edit": False} for r in PERMISSION_RESOURCES}
-        perms["documentos"] = {"view": True, "edit": False}  # Entregas de documentos: todos los usuarios
+        for r in PERMISSION_RESOURCES:  # Entregas de documentos y Ticket servicio: visibles por defecto
+            if r["module"] in ("Entregas de documentos", "Ticket servicio"):
+                perms[r["key"]] = {"view": True, "edit": False}
         return perms
     perms = {r["key"]: {"view": True, "edit": r["editable"] and r["module"] in ("Herramientas", "Gastos")} for r in PERMISSION_RESOURCES}
     if role == "tecnico":
@@ -146,14 +157,20 @@ def _default_perms_for_role(role: str) -> dict:
             if r["module"] == "Herramientas":
                 perms[r["key"]] = {"view": False, "edit": False}
         perms["veh_rutas"] = {"view": False, "edit": True}
+    for k, allowed in _ROLE_LIMITED.items():
+        if role not in allowed:
+            perms[k] = {"view": False, "edit": False}
     return perms
 
 
-def _merge_stored(base: dict, stored: Optional[dict]) -> dict:
+def _merge_stored(base: dict, stored: Optional[dict], role: Optional[str] = None) -> dict:
     if stored and isinstance(stored.get("perms"), dict):
         for k, v in stored["perms"].items():
             if k in base:
                 base[k] = {"view": bool(v.get("view")), "edit": bool(v.get("edit")) and k in _EDITABLE_KEYS}
+    for k, allowed in _ROLE_LIMITED.items():
+        if role and role not in allowed:
+            base[k] = {"view": False, "edit": False}
     return base
 
 
@@ -163,7 +180,7 @@ async def _effective_perms(user: dict) -> dict:
         return {r["key"]: {"view": True, "edit": r["editable"]} for r in PERMISSION_RESOURCES}
     base = _default_perms_for_role(role)
     stored = await db.role_permissions.find_one({"role": role}, {"_id": 0})
-    return _merge_stored(base, stored)
+    return _merge_stored(base, stored, role)
 
 
 async def _require_resource_edit(resource_key: str, user: dict):
@@ -249,7 +266,7 @@ async def get_permissions_matrix(user: dict = Depends(require_admin)):
     for role in MATRIX_ROLES:
         base = _default_perms_for_role(role)
         stored = await db.role_permissions.find_one({"role": role}, {"_id": 0})
-        matrix[role] = _merge_stored(base, stored)
+        matrix[role] = _merge_stored(base, stored, role)
     return {"resources": PERMISSION_RESOURCES, "roles": MATRIX_ROLES, "matrix": matrix}
 
 
@@ -4701,7 +4718,7 @@ app.add_event_handler("startup", _catalog_startup_handler)
 _trips_router, _trips_startup = create_trips_router(db, get_current_user, _effective_perms, _require_resource_edit, _resolve_cities, _filter_by_cities)
 app.include_router(_trips_router)
 app.add_event_handler("startup", _trips_startup)
-_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, _send_email, APP_BASE_URL, EMAIL_FROM_NAME)
+_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, _send_email, APP_BASE_URL, EMAIL_FROM_NAME, _effective_perms)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
 from documents import create_documents_router  # noqa: E402

@@ -98,7 +98,8 @@ class MensajeIn(BaseModel):
     texto: str
 
 
-def create_ticket_router(db, get_current_user, require_admin, send_email=None, app_base_url: str = "", from_name: str = ""):
+def create_ticket_router(db, get_current_user, require_admin, send_email=None, app_base_url: str = "", from_name: str = "",
+                         effective_perms=None):
     r = APIRouter(prefix="/api/ts")
     bg_tasks = set()
 
@@ -180,6 +181,10 @@ def create_ticket_router(db, get_current_user, require_admin, send_email=None, a
     async def ts_user(user: dict = Depends(get_current_user)) -> dict:
         if user.get("role") not in TS_ROLES:
             raise HTTPException(status_code=403, detail="Sin acceso al módulo Ticket servicio")
+        if effective_perms and user.get("role") != ADMIN:
+            perms = await effective_perms(user)
+            if not perms.get("tickets", {}).get("view"):
+                raise HTTPException(status_code=403, detail="Sin acceso al módulo Ticket servicio")
         return user
 
     def _scope(user: dict) -> dict:

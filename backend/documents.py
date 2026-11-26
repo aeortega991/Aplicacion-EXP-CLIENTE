@@ -72,6 +72,13 @@ def create_documents_router(db, get_current_user, effective_perms, send_email=No
             raise HTTPException(status_code=403, detail="No tienes acceso al módulo de entregas de documentos")
         return user
 
+    async def _require_sub(user: dict, key: str, msg: str):
+        if user.get("role") == "admin":
+            return
+        perms = await effective_perms(user)
+        if not perms.get(key, {}).get("view"):
+            raise HTTPException(status_code=403, detail=msg)
+
     def _is_admin(user: dict) -> bool:
         return user.get("role") == "admin"
 
@@ -151,6 +158,7 @@ def create_documents_router(db, get_current_user, effective_perms, send_email=No
 
     @r.post("/entregas")
     async def create_entrega(payload: EntregaIn, user: dict = Depends(_require_access)):
+        await _require_sub(user, "doc_nueva", "No tienes permiso para registrar entregas")
         ciudad = _clean(user.get("ciudad"))
         if not ciudad:
             raise HTTPException(status_code=400, detail="Tu usuario no tiene una ciudad asignada. Pide al administrador que te asigne una ciudad para poder registrar entregas.")
@@ -199,8 +207,10 @@ def create_documents_router(db, get_current_user, effective_perms, send_email=No
     async def list_entregas(scope: str = "recibidas", estado: Optional[str] = None, tipo: Optional[str] = None,
                             ciudad: Optional[str] = None, q: Optional[str] = None, user: dict = Depends(_require_access)):
         if scope == "enviadas":
+            await _require_sub(user, "doc_enviadas", "No tienes permiso para ver las entregas enviadas")
             query = {"emisor_id": user["id"]}
         elif scope == "recibidas":
+            await _require_sub(user, "doc_recibidas", "No tienes permiso para ver las entregas recibidas")
             query = {"receptor_id": user["id"]}
         elif scope == "todas":
             if not _is_admin(user):
@@ -253,6 +263,7 @@ def create_documents_router(db, get_current_user, effective_perms, send_email=No
 
     @r.post("/entregas/{entrega_id}/aceptar")
     async def accept_entrega(entrega_id: str, user: dict = Depends(_require_access)):
+        await _require_sub(user, "doc_recibidas", "No tienes permiso para aceptar entregas")
         d = await _get_or_404(entrega_id, user)
         if d["receptor_id"] != user["id"]:
             raise HTTPException(status_code=403, detail="Solo el receptor asignado puede aceptar esta entrega")
