@@ -8,31 +8,44 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { ClipboardCheck, RotateCcw, Mail, Download, User, Warehouse } from "lucide-react";
+import { ClipboardCheck, RotateCcw, Mail, Download, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+
+const norm = (v) => String(v || "").trim().toUpperCase();
+
+const saveBlob = (data, filename) => {
+  const url = window.URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
 
 export default function AsignacionesPage() {
   const { can } = useAuth();
-  const [tools, setTools] = useState([]);
   const [technicians, setTechnicians] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [cities, setCities] = useState([]);
   const [current, setCurrent] = useState([]);
-  const [destType, setDestType] = useState("technician");
-  const [ciudadFilter, setCiudadFilter] = useState("__all__");
-  const [techId, setTechId] = useState("");
+  const [ciudad, setCiudad] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
+  const [whTools, setWhTools] = useState([]);
+  const [loadingTools, setLoadingTools] = useState(false);
+  const [search, setSearch] = useState("");
+  const [techId, setTechId] = useState("");
   const [selectedTools, setSelectedTools] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [t, tech, wh, cur, ci] = await Promise.all([
-      api.get("/tools/tools"),
+    const [tech, wh, cur, ci] = await Promise.all([
       api.get("/tools/technicians"),
       api.get("/tools/warehouses"),
       api.get("/tools/reports/current"),
       api.get("/cities"),
     ]);
-    setTools(t.data);
     setTechnicians(tech.data);
     setWarehouses(wh.data);
     setCurrent(cur.data);
@@ -40,72 +53,75 @@ export default function AsignacionesPage() {
   };
   useEffect(() => { load(); }, []);
 
-  const tech = technicians.find((t) => t.id === techId);
-  const warehouse = warehouses.find((w) => w.id === warehouseId);
-  const assignedToTechIds = new Set(current.map((c) => c.tool_id));
-  const availableTools = useMemo(
-    () => tools.filter((t) => t.estado === "Activa" && !assignedToTechIds.has(t.id)),
-    [tools, current]
-  );
+  const loadWhTools = async (id) => {
+    if (!id) { setWhTools([]); return; }
+    setLoadingTools(true);
+    try {
+      const { data } = await api.get(`/tools/warehouses/${id}/tools`);
+      setWhTools(data.filter((t) => t.estado === "Activa"));
+    } catch (err) { toast.error(formatApiError(err)); setWhTools([]); }
+    finally { setLoadingTools(false); }
+  };
 
-  const filteredTechs = useMemo(() => {
-    if (ciudadFilter === "__all__") return technicians;
-    return technicians.filter((t) => String(t.ciudad || "").toUpperCase() === ciudadFilter.toUpperCase());
-  }, [technicians, ciudadFilter]);
-  const filteredWarehouses = useMemo(() => {
-    if (ciudadFilter === "__all__") return warehouses;
-    return warehouses.filter((w) => String(w.ciudad || "").toUpperCase() === ciudadFilter.toUpperCase());
-  }, [warehouses, ciudadFilter]);
+  // Paso 1 → 2 y 4: la ciudad filtra bodegas y técnicos activos
+  const cityWarehouses = useMemo(() => warehouses.filter((w) => !w.es_central && ciudad && norm(w.ciudad) === norm(ciudad)), [warehouses, ciudad]);
+  const cityTechs = useMemo(() => technicians.filter((t) => t.activo !== false && ciudad && norm(t.ciudad) === norm(ciudad)), [technicians, ciudad]);
+  const tech = cityTechs.find((t) => t.id === techId);
+  const warehouse = cityWarehouses.find((w) => w.id === warehouseId);
 
-  // Reset selection when city filter would hide it
-  useEffect(() => {
-    if (tech && ciudadFilter !== "__all__" && String(tech.ciudad || "").toUpperCase() !== ciudadFilter.toUpperCase()) setTechId("");
-    if (warehouse && ciudadFilter !== "__all__" && String(warehouse.ciudad || "").toUpperCase() !== ciudadFilter.toUpperCase()) setWarehouseId("");
-  }, [ciudadFilter]); // eslint-disable-line
+  const onCiudad = (v) => { setCiudad(v); setWarehouseId(""); setWhTools([]); setSelectedTools([]); setTechId(""); setSearch(""); };
+  const onWarehouse = (v) => { setWarehouseId(v); setSelectedTools([]); setSearch(""); loadWhTools(v); };
+
+  const visibleTools = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return whTools;
+    return whTools.filter((t) => [t.tool_code, t.marca, t.modelo, t.serie].join(" ").toLowerCase().includes(q));
+  }, [whTools, search]);
 
   const toggleTool = (id) => {
     setSelectedTools((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
   };
+  const allVisibleSelected = visibleTools.length > 0 && visibleTools.every((t) => selectedTools.includes(t.tool_id));
   const toggleAll = () => {
-    if (selectedTools.length === availableTools.length) setSelectedTools([]);
-    else setSelectedTools(availableTools.map((t) => t.id));
+    const ids = visibleTools.map((t) => t.tool_id);
+    if (allVisibleSelected) setSelectedTools((s) => s.filter((x) => !ids.includes(x)));
+    else setSelectedTools((s) => [...new Set([...s, ...ids])]);
   };
 
-  const selectedValue = tools
-    .filter((t) => selectedTools.includes(t.id))
-    .reduce((s, t) => s + Number(t.valor || 0), 0);
+  const selectedValue = whTools.filter((t) => selectedTools.includes(t.tool_id)).reduce((s, t) => s + Number(t.valor || 0), 0);
+  const ready = ciudad && warehouseId && techId && selectedTools.length > 0;
+
+  const downloadPdfFor = async (batch_id, name) => {
+    if (!batch_id) return;
+    try {
+      const pdf = await api.get(`/tools/assignments/batch/${batch_id}/pdf`, { responseType: "blob" });
+      saveBlob(pdf.data, `${name || `acta_${batch_id.slice(0, 8)}`}.pdf`);
+      return true;
+    } catch { toast.error("No se pudo descargar el acta. Puedes reintentar desde la tabla de asignaciones."); return false; }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (destType === "technician" && !techId) { toast.error("Selecciona un técnico"); return; }
-    if (destType === "warehouse" && !warehouseId) { toast.error("Selecciona una bodega"); return; }
+    if (!ciudad) { toast.error("Selecciona la ciudad"); return; }
+    if (!warehouseId) { toast.error("Selecciona la bodega de origen"); return; }
     if (selectedTools.length === 0) { toast.error("Selecciona al menos una herramienta"); return; }
+    if (!techId) { toast.error("Selecciona un técnico"); return; }
+    if (norm(tech?.ciudad) !== norm(warehouse?.ciudad)) { toast.error("El técnico y la bodega deben ser de la misma ciudad"); return; }
     setSubmitting(true);
     try {
-      const payload = {
-        destination_type: destType,
-        tool_ids: selectedTools,
-        technician_id: destType === "technician" ? techId : null,
-        warehouse_id: destType === "warehouse" ? warehouseId : null,
-      };
-      const { data } = await api.post("/tools/assignments/batch", payload);
-      const pdf = await api.get(`/tools/assignments/batch/${data.batch_id}/pdf`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([pdf.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `acta_${data.batch_id.slice(0, 8)}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      const { data } = await api.post("/tools/assignments/batch", {
+        destination_type: "technician", technician_id: techId, source_warehouse_id: warehouseId, tool_ids: selectedTools,
+      });
+      await downloadPdfFor(data.batch_id, data.codigo);
       const enviados = data.emails_enviados.length;
       const omitidos = data.emails_omitidos.length;
-      const destLabel = destType === "technician" ? "técnico" : "bodega";
-      toast.success(`${data.total_herramientas} herramientas asignadas a ${destLabel} · PDF descargado · ${enviados} correo(s) enviado(s)${omitidos ? ` · ${omitidos} omitido(s)` : ""}`);
-      setTechId(""); setWarehouseId(""); setSelectedTools([]);
+      toast.success(`Asignación ${data.codigo}: ${data.total_herramientas} herramientas · ${enviados} correo(s)${omitidos ? ` · ${omitidos} omitido(s)` : ""}`);
+      setSelectedTools([]); setTechId("");
+      loadWhTools(warehouseId);
       load();
     } catch (err) {
       toast.error(formatApiError(err));
+      loadWhTools(warehouseId);
     } finally { setSubmitting(false); }
   };
 
@@ -114,22 +130,8 @@ export default function AsignacionesPage() {
       await api.patch(`/tools/assignments/${id}/return`);
       toast.success("Devolución registrada");
       load();
+      if (warehouseId) loadWhTools(warehouseId);
     } catch (err) { toast.error(formatApiError(err)); }
-  };
-
-  const downloadPdfFor = async (batch_id) => {
-    if (!batch_id) return;
-    try {
-      const pdf = await api.get(`/tools/assignments/batch/${batch_id}/pdf`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([pdf.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `acta_${batch_id.slice(0, 8)}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch { toast.error("PDF no disponible"); }
   };
 
   return (
@@ -140,111 +142,76 @@ export default function AsignacionesPage() {
           <ClipboardCheck className="w-7 h-7 text-red-600" /> Asignar Herramientas
         </h1>
         <p className="text-sm text-neutral-500 mt-1">
-          Selecciona el destino (técnico o bodega interna) y una o varias herramientas. Al confirmar se genera un acta PDF y se envía por correo.
+          Elige la ciudad, la bodega de origen, las herramientas disponibles y el técnico de esa ciudad. Al confirmar se genera una única acta PDF y se envía por correo.
         </p>
       </div>
 
       <Card className="p-6 border border-neutral-200 shadow-none">
         <form onSubmit={submit} className="space-y-5">
-          {/* City filter + Destination toggle */}
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="space-y-2 min-w-[220px]">
-              <Label>Filtrar por ciudad</Label>
-              <Select value={ciudadFilter} onValueChange={setCiudadFilter}>
-                <SelectTrigger data-testid="asig-ciudad-filter"><SelectValue /></SelectTrigger>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>1. Ciudad *</Label>
+              <Select value={ciudad} onValueChange={onCiudad}>
+                <SelectTrigger data-testid="asig-ciudad-filter"><SelectValue placeholder="Seleccionar ciudad…" /></SelectTrigger>
                 <SelectContent className="max-h-64">
-                  <SelectItem value="__all__">— Todas las ciudades —</SelectItem>
                   {cities.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Destino</Label>
-              <div className="inline-flex rounded-md border border-neutral-200 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => { setDestType("technician"); setWarehouseId(""); }}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "technician" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
-                  data-testid="dest-tech-btn"
-                >
-                  <User className="w-4 h-4" /> Técnico
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setDestType("warehouse"); setTechId(""); }}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm ${destType === "warehouse" ? "bg-red-600 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`}
-                  data-testid="dest-wh-btn"
-                >
-                  <Warehouse className="w-4 h-4" /> Bodega interna
-                </button>
-              </div>
+              <Label>2. Bodega de origen *</Label>
+              <Select value={warehouseId} onValueChange={onWarehouse} disabled={!ciudad}>
+                <SelectTrigger data-testid="asig-wh-select"><SelectValue placeholder={!ciudad ? "Primero elige la ciudad" : cityWarehouses.length === 0 ? "Sin bodegas en esta ciudad" : "Seleccionar bodega…"} /></SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {cityWarehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.nombre}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
-            <div className="lg:col-span-2 space-y-2">
-              {destType === "technician" ? (
-                <>
-                  <Label>Técnico * {ciudadFilter !== "__all__" && <span className="text-xs text-neutral-500 font-normal">({filteredTechs.length} en {ciudadFilter})</span>}</Label>
-                  <Select value={techId} onValueChange={setTechId}>
-                    <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder={filteredTechs.length === 0 ? "Sin técnicos en la ciudad seleccionada" : "Seleccionar técnico…"} /></SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {filteredTechs.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>{t.codigo} — {t.nombre} {t.apellido} · {t.ciudad || "—"} {t.email ? `· ${t.email}` : ""}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {tech && (
-                    <div className="text-xs text-neutral-600 mt-2 flex flex-wrap gap-4">
-                      {tech.cedula && <span><b>Cédula:</b> <span className="font-mono">{tech.cedula}</span></span>}
-                      {tech.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {tech.email}</span>}
-                      {!tech.email && <span className="text-amber-700">⚠ Sin email, no recibirá el acta</span>}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <Label>Bodega interna * {ciudadFilter !== "__all__" && <span className="text-xs text-neutral-500 font-normal">({filteredWarehouses.length} en {ciudadFilter})</span>}</Label>
-                  <Select value={warehouseId} onValueChange={setWarehouseId}>
-                    <SelectTrigger data-testid="assign-wh-select"><SelectValue placeholder={filteredWarehouses.length === 0 ? "Sin bodegas en la ciudad seleccionada" : "Seleccionar bodega interna…"} /></SelectTrigger>
-                    <SelectContent className="max-h-72">
-                      {filteredWarehouses.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>{w.nombre} · {w.ciudad}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {warehouse && (
-                    <div className="text-xs text-neutral-600 mt-2 flex flex-wrap gap-4">
-                      <span><b>Ciudad:</b> {warehouse.ciudad}</span>
-                      {warehouse.email && <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {warehouse.email}</span>}
-                    </div>
-                  )}
-                </>
+            <div className="space-y-2">
+              <Label>4. Técnico * {ciudad && <span className="text-xs text-neutral-500 font-normal">({cityTechs.length} en {ciudad})</span>}</Label>
+              <Select value={techId} onValueChange={setTechId} disabled={!ciudad}>
+                <SelectTrigger data-testid="assign-tech-select"><SelectValue placeholder={!ciudad ? "Primero elige la ciudad" : cityTechs.length === 0 ? "Sin técnicos activos en esta ciudad" : "Seleccionar técnico…"} /></SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {cityTechs.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.codigo} — {t.nombre} {t.apellido}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {tech && (
+                <div className="text-xs text-neutral-600 flex flex-wrap gap-3">
+                  {tech.cedula && <span><b>Cédula:</b> <span className="font-mono">{tech.cedula}</span></span>}
+                  {tech.email ? <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {tech.email}</span> : <span className="text-amber-700">⚠ Sin email, no recibirá el acta</span>}
+                </div>
               )}
-            </div>
-            <div className="text-right">
-              <div className="text-xs uppercase tracking-widest text-neutral-500">Seleccionadas</div>
-              <div className="text-3xl font-bold font-mono">{selectedTools.length}</div>
-              <div className="text-xs text-neutral-500 font-mono">Valor: {money(selectedValue)}</div>
             </div>
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label>Herramientas disponibles ({availableTools.length})</Label>
-              <button type="button" onClick={toggleAll} className="text-xs text-red-600 hover:text-red-700 font-medium">
-                {selectedTools.length === availableTools.length && availableTools.length > 0 ? "Deseleccionar todo" : "Seleccionar todo"}
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+              <Label>3. Herramientas disponibles {warehouse ? `en ${warehouse.nombre}` : ""} ({whTools.length})</Label>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ID, marca, serie…" className="pl-8 h-9 w-60" disabled={!warehouseId} data-testid="asig-tool-search" />
+                </div>
+                <button type="button" onClick={toggleAll} disabled={!visibleTools.length} className="text-xs text-red-600 hover:text-red-700 font-medium disabled:text-neutral-300" data-testid="asig-select-all">
+                  {allVisibleSelected ? "Deseleccionar todo" : "Seleccionar todo"}
+                </button>
+              </div>
             </div>
             <div className="border border-neutral-200 rounded-md max-h-72 overflow-y-auto">
-              {availableTools.length === 0 ? (
-                <div className="p-8 text-center text-sm text-neutral-500">No hay herramientas disponibles</div>
+              {!warehouseId ? (
+                <div className="p-8 text-center text-sm text-neutral-500">Selecciona la ciudad y la bodega de origen para ver sus herramientas</div>
+              ) : loadingTools ? (
+                <div className="p-8 text-center text-sm text-neutral-500">Cargando inventario…</div>
+              ) : visibleTools.length === 0 ? (
+                <div className="p-8 text-center text-sm text-neutral-500">{whTools.length ? "Ninguna herramienta coincide con la búsqueda" : "No hay herramientas disponibles en esta bodega"}</div>
               ) : (
                 <div className="divide-y divide-neutral-100">
-                  {availableTools.map((t) => (
-                    <label key={t.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-50 cursor-pointer" data-testid={`tool-check-${t.tool_id}`}>
-                      <Checkbox checked={selectedTools.includes(t.id)} onCheckedChange={() => toggleTool(t.id)} />
-                      <span className="font-mono text-sm w-20 shrink-0">{t.tool_id}</span>
+                  {visibleTools.map((t) => (
+                    <label key={t.tool_id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-neutral-50 cursor-pointer" data-testid={`tool-check-${t.tool_code}`}>
+                      <Checkbox checked={selectedTools.includes(t.tool_id)} onCheckedChange={() => toggleTool(t.tool_id)} />
+                      <span className="font-mono text-sm w-20 shrink-0">{t.tool_code}</span>
                       <span className="text-sm flex-1"><b>{t.marca}</b> {t.modelo || ""} · <span className="text-neutral-500">{t.serie || "sin serie"}</span></span>
                       <span className="font-mono text-sm">{money(t.valor)}</span>
                     </label>
@@ -254,11 +221,16 @@ export default function AsignacionesPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-6">
+            <div className="text-right">
+              <div className="text-xs uppercase tracking-widest text-neutral-500">Seleccionadas</div>
+              <div className="text-2xl font-bold font-mono" data-testid="asig-selected-count">{selectedTools.length}</div>
+              <div className="text-xs text-neutral-500 font-mono">Valor: {money(selectedValue)}</div>
+            </div>
             {can("her_asignaciones", "edit") && (
-            <Button type="submit" disabled={submitting} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="assign-batch-btn">
+            <Button type="submit" disabled={submitting || !ready} className="bg-red-600 hover:bg-red-700 text-white gap-2" data-testid="assign-batch-btn">
               <ClipboardCheck className="w-4 h-4" />
-              {submitting ? "Procesando…" : `Asignar ${selectedTools.length || ""} y enviar acta`}
+              {submitting ? "Procesando…" : `5. Asignar ${selectedTools.length || ""} y generar acta`}
             </Button>
             )}
           </div>

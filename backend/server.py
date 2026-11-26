@@ -25,6 +25,8 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
+from pymongo.errors import BulkWriteError
 from pydantic import BaseModel, Field, ConfigDict
 from trips import create_trips_router, DONE_TRIPS, PROTECTED_TRIP_KEYS
 from catalog import create_catalog_router, region_of_city as catalog_region_of_city, validate_location, catalog_lists
@@ -1930,6 +1932,11 @@ async def _startup():
     await seed_admin_and_data()
     await _seed_warehouses()
     await _central_warehouse()
+    try:  # una herramienta solo puede tener una ubicación vigente (evita asignaciones duplicadas)
+        await db.tool_assignments.create_index(
+            "tool_id", name="uniq_tool_vigente", unique=True, partialFilterExpression={"estado": "Vigente"})
+    except Exception:
+        logging.exception("No se pudo crear el índice único de asignaciones vigentes")
     await _seed_expenses_module()
     await _migrate_unify_tecnicos()
 
@@ -1981,6 +1988,7 @@ class AssignmentBatchIn(BaseModel):
     warehouse_id: Optional[str] = None
     tool_ids: List[str]
     destination_type: str = "technician"  # "technician" | "warehouse"
+    source_warehouse_id: Optional[str] = None  # bodega de origen (obligatoria para técnico)
 
 
 class ReturnBatchIn(BaseModel):
@@ -2255,15 +2263,25 @@ async def create_assignment(payload: AssignmentIn, user: dict = Depends(get_curr
 async def return_assignment(assignment_id: str, user: dict = Depends(get_current_user)):
     await _require_resource_edit("her_devoluciones", user)
     today = datetime.now(timezone.utc).date().isoformat()
-    res = await db.tool_assignments.update_one(
+    a = await db.tool_assignments.find_one_and_update(
         {"id": assignment_id, "estado": "Vigente"},
         {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"]}},
+        projection={"_id": 0},
     )
-    if res.matched_count == 0:
+    if not a:
         raise HTTPException(status_code=404, detail="Asignación vigente no encontrada")
+    if a.get("source_warehouse_id") and a.get("technician_id"):
+        # la herramienta vuelve a estar disponible en su bodega de origen
+        await db.tool_assignments.insert_one({
+            "id": str(uuid.uuid4()), "tool_id": a["tool_id"], "technician_id": None,
+            "warehouse_id": a["source_warehouse_id"], "destination_type": "warehouse", "batch_id": None,
+            "fecha_asignacion": today, "fecha_devolucion": None, "estado": "Vigente",
+            "_created_by": user["username"], "source": "return",
+        })
     return {"ok": True}
 
-def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, creator_name: str, kind: str = "technician", title: Optional[str] = None) -> bytes:
+def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, creator_name: str, kind: str = "technician", title: Optional[str] = None,
+                          codigo: Optional[str] = None, extra_rows: Optional[list] = None, fecha_hora: Optional[str] = None) -> bytes:
     """kind: 'technician' | 'warehouse' | 'return' | 'transfer'"""
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
@@ -2290,7 +2308,8 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
 
     story = []
     story.append(Paragraph(title, styles["Hred"]))
-    story.append(Paragraph(f"Batch: <b>{batch_id[:8]}</b> · Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')} · Generado por: {escape(creator_name)}", styles["Small"]))
+    ref = escape(codigo) if codigo else batch_id[:8]
+    story.append(Paragraph(f"{'Código' if codigo else 'Batch'}: <b>{ref}</b> · Fecha: {escape(fecha_hora or datetime.now().strftime('%Y-%m-%d %H:%M'))} · Generado por: {escape(creator_name)}", styles["Small"]))
     story.append(Spacer(1, 12))
 
     # Recipient section varies by kind
@@ -2301,6 +2320,7 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
             ["Cédula", recipient.get("cedula") or "-", "Ciudad", recipient.get("ciudad") or "-"],
             ["Correo", recipient.get("email") or "-", "", ""],
         ]
+        tech_data += [list(r) for r in (extra_rows or [])]
     elif kind == "warehouse":
         tech_data = [
             ["Bodega", recipient.get("nombre","-"), "Ciudad", recipient.get("ciudad") or "-"],
@@ -2379,6 +2399,138 @@ def _build_assignment_pdf(recipient: dict, tools_list: list, batch_id: str, crea
     buf.seek(0)
     return buf.getvalue()
 
+async def _next_assignment_code() -> str:
+    year = datetime.now(timezone(timedelta(hours=-5))).year
+    c = await db.counters.find_one_and_update({"_id": f"tool_assignment_{year}"}, {"$inc": {"seq": 1}},
+                                             upsert=True, return_document=ReturnDocument.AFTER)
+    return f"AS-{year}-{c['seq']:06d}"
+
+
+def _assignment_pdf_from_batch(b: dict, tech: dict, tools_docs: list) -> bytes:
+    return _build_assignment_pdf(
+        tech, tools_docs, b["id"], b.get("creator_name") or b.get("created_by") or "-", kind="technician",
+        codigo=b.get("codigo"), fecha_hora=b.get("fecha_hora"),
+        extra_rows=[["Bodega origen", b.get("source_warehouse_nombre") or "-", "Ciudad", b.get("ciudad") or "-"],
+                    ["Responsable", b.get("creator_name") or "-", "Cantidad", str(len(tools_docs))]],
+    )
+
+
+async def _assign_from_warehouse_to_tech(payload: "AssignmentBatchIn", user: dict) -> dict:
+    """Flujo Ciudad → Bodega → Herramientas → Técnico. Valida todo antes de escribir y
+    revierte si otra operación toma alguna herramienta en paralelo (sin asignaciones parciales)."""
+    if not payload.source_warehouse_id:
+        raise HTTPException(status_code=400, detail="Selecciona la bodega de origen")
+    if not payload.technician_id:
+        raise HTTPException(status_code=400, detail="Selecciona un técnico")
+    wh = await db.tool_warehouses.find_one({"id": payload.source_warehouse_id}, {"_id": 0})
+    if not wh:
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
+    tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
+    if not tech or tech.get("activo") is False:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado o inactivo")
+    ciudad = _norm_city(wh.get("ciudad"))
+    if not ciudad or _norm_city(tech.get("ciudad")) != ciudad:
+        raise HTTPException(status_code=400, detail="El técnico y la bodega deben pertenecer a la misma ciudad")
+
+    tools_docs, wh_assignments = [], []
+    for tid in payload.tool_ids:
+        tool = await db.tools.find_one({"id": tid}, {"_id": 0})
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Herramienta no encontrada: {tid}")
+        if tool.get("estado") != "Activa":
+            raise HTTPException(status_code=400, detail=f"{tool.get('tool_id')} está inactiva y no puede asignarse")
+        a = await db.tool_assignments.find_one({"tool_id": tid, "estado": "Vigente", "destination_type": "warehouse",
+                                                "warehouse_id": wh["id"]}, {"_id": 0})
+        if not a or await db.tool_assignments.find_one({"tool_id": tid, "estado": "Vigente", "technician_id": {"$ne": None}}):
+            raise HTTPException(status_code=409, detail=f"{tool.get('tool_id')} ya no está disponible en {wh.get('nombre')}")
+        tools_docs.append(tool)
+        wh_assignments.append(a)
+
+    batch_id = str(uuid.uuid4())
+    now_local = datetime.now(timezone(timedelta(hours=-5)))
+    today = datetime.now(timezone.utc).date().isoformat()
+    closed = []
+    try:
+        for a in wh_assignments:  # retiro atómico de la bodega
+            r = await db.tool_assignments.update_one(
+                {"id": a["id"], "estado": "Vigente"},
+                {"$set": {"estado": "Devuelta", "fecha_devolucion": today, "_returned_by": user["username"], "assign_batch_id": batch_id}})
+            if r.modified_count != 1:
+                raise HTTPException(status_code=409, detail="Otra operación tomó una de las herramientas. Actualiza e intenta de nuevo.")
+            closed.append(a["id"])
+        await db.tool_assignments.insert_many([{
+            "id": str(uuid.uuid4()), "tool_id": t["id"], "technician_id": tech["id"], "warehouse_id": None,
+            "source_warehouse_id": wh["id"], "destination_type": "technician", "batch_id": batch_id,
+            "fecha_asignacion": today, "fecha_devolucion": None, "estado": "Vigente", "_created_by": user["username"],
+            "_created_at": datetime.now(timezone.utc).isoformat(),
+        } for t in tools_docs], ordered=True)
+    except Exception as e:
+        await db.tool_assignments.delete_many({"batch_id": batch_id, "destination_type": "technician"})
+        if closed:
+            await db.tool_assignments.update_many(
+                {"id": {"$in": closed}, "assign_batch_id": batch_id},
+                {"$set": {"estado": "Vigente", "fecha_devolucion": None}, "$unset": {"_returned_by": "", "assign_batch_id": ""}})
+        if isinstance(e, HTTPException):
+            raise
+        if isinstance(e, BulkWriteError):
+            raise HTTPException(status_code=409, detail="Una de las herramientas ya fue asignada. No se realizó ningún cambio.")
+        raise
+
+    creator = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    creator_name = (creator.get("name") if creator else None) or user.get("username")
+    batch = {
+        "id": batch_id, "codigo": await _next_assignment_code(), "technician_id": tech["id"],
+        "technician_nombre": f"{tech.get('nombre', '')} {tech.get('apellido', '')}".strip(),
+        "warehouse_id": None, "source_warehouse_id": wh["id"], "source_warehouse_nombre": wh.get("nombre"),
+        "ciudad": wh.get("ciudad"), "destination_type": "technician", "kind": "technician",
+        "tool_ids": [t["id"] for t in tools_docs], "fecha": today, "fecha_hora": now_local.strftime("%Y-%m-%d %H:%M"),
+        "created_by": user["username"], "creator_name": creator_name, "pdf_hex": None,
+    }
+    try:
+        batch["pdf_hex"] = _assignment_pdf_from_batch(batch, tech, tools_docs).hex()
+    except Exception:
+        logging.exception("Fallo al generar el acta %s (se podrá regenerar)", batch["codigo"])
+    await db.tool_assignment_batches.insert_one(dict(batch))
+
+    total = sum(float(t.get("valor") or 0) for t in tools_docs)
+    rows = "".join(
+        f'<tr><td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("tool_id") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB">{escape(str(t.get("marca") or ""))} {escape(str(t.get("modelo") or ""))}</td>'
+        f'<td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-family:monospace">{escape(str(t.get("serie") or "-"))}</td></tr>'
+        for t in tools_docs)
+    html = (
+        '<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#ffffff">'
+        f'<tr><td style="padding:22px 24px;border-bottom:3px solid #0033A0"><h2 style="margin:0;color:#111827">Acta de entrega de herramientas {escape(batch["codigo"])}</h2>'
+        f'<p style="margin:4px 0 0;color:#6B7280;font-size:12px">Enviado por {escape(EMAIL_FROM_NAME)}</p></td></tr>'
+        '<tr><td style="padding:18px 24px;color:#111827;font-size:14px">'
+        f'<p><strong>Técnico:</strong> {escape(batch["technician_nombre"])} · <strong>Ciudad:</strong> {escape(str(wh.get("ciudad") or "—"))}</p>'
+        f'<p><strong>Bodega origen:</strong> {escape(str(wh.get("nombre") or "—"))} · <strong>Fecha:</strong> {escape(batch["fecha_hora"])} · <strong>Entregado por:</strong> {escape(creator_name)}</p>'
+        f'<p><strong>Cantidad:</strong> {len(tools_docs)} herramientas</p>'
+        '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:12px"><thead><tr style="background:#111827;color:white">'
+        '<th style="padding:6px 8px;text-align:left">ID</th><th style="padding:6px 8px;text-align:left">Herramienta</th><th style="padding:6px 8px;text-align:left">Serie</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table>'
+        '<p style="margin-top:12px;color:#6B7280;font-size:12px">El acta oficial en PDF está disponible para descarga en el sistema.</p></td></tr>'
+        '<tr><td style="padding:14px 24px;background:#F9FAFB;color:#6B7280;font-size:11px;border-top:1px solid #E5E7EB">'
+        f'Este correo fue generado automáticamente por {escape(EMAIL_FROM_NAME)}. Nunca solicitamos contraseñas ni datos de tarjeta por correo.</td></tr></table>')
+    recipients = []
+    if tech.get("email"):
+        recipients.append(("Técnico", tech["email"]))
+    if creator and creator.get("email"):
+        recipients.append(("Responsable", creator["email"]))
+    emails_sent, emails_skipped = [], []
+    for who, addr in recipients:
+        try:
+            eid = await _send_email(to=addr, subject=f"Acta de entrega de herramientas {batch['codigo']} — {batch['technician_nombre']}", html=html)
+            emails_sent.append({"tipo": who, "email": addr, "email_id": eid})
+        except Exception as e:
+            emails_skipped.append({"tipo": who, "email": addr, "error": str(e)})
+    return {
+        "batch_id": batch_id, "codigo": batch["codigo"], "total_herramientas": len(tools_docs),
+        "valor_total": round(total, 2), "destination_type": "technician", "pdf_ok": bool(batch["pdf_hex"]),
+        "emails_enviados": emails_sent, "emails_omitidos": emails_skipped,
+    }
+
+
 @api.post("/tools/assignments/batch")
 async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depends(get_current_user)):
     await _require_resource_edit("her_asignaciones", user)
@@ -2390,12 +2542,10 @@ async def create_assignments_batch(payload: AssignmentBatchIn, user: dict = Depe
 
     tech = None
     wh = None
+    if len(set(payload.tool_ids)) != len(payload.tool_ids):
+        raise HTTPException(status_code=400, detail="Hay herramientas repetidas en la selección")
     if dest == "technician":
-        if not payload.technician_id:
-            raise HTTPException(status_code=400, detail="Selecciona un técnico")
-        tech = await db.tool_technicians.find_one({"id": payload.technician_id}, {"_id": 0})
-        if not tech:
-            raise HTTPException(status_code=404, detail="Técnico no encontrado")
+        return await _assign_from_warehouse_to_tech(payload, user)
     else:
         if not payload.warehouse_id:
             raise HTTPException(status_code=400, detail="Selecciona una bodega")
@@ -2535,12 +2685,23 @@ async def get_batch_pdf(batch_id: str, user: dict = Depends(get_current_user)):
     b = await db.tool_assignment_batches.find_one({"id": batch_id}, {"_id": 0})
     if not b:
         raise HTTPException(status_code=404, detail="Acta no encontrada")
+    if not b.get("pdf_hex"):  # regenerar sin repetir la asignación
+        tech = await db.tool_technicians.find_one({"id": b.get("technician_id")}, {"_id": 0}) or {}
+        tools_docs = await db.tools.find({"id": {"$in": b.get("tool_ids", [])}}, {"_id": 0}).to_list(5000)
+        try:
+            pdf_hex = _assignment_pdf_from_batch(b, tech, tools_docs).hex()
+        except Exception:
+            logging.exception("Fallo al regenerar acta %s", batch_id)
+            raise HTTPException(status_code=500, detail="No se pudo generar el acta. Intenta nuevamente.")
+        await db.tool_assignment_batches.update_one({"id": batch_id}, {"$set": {"pdf_hex": pdf_hex}})
+        b["pdf_hex"] = pdf_hex
     pdf_bytes = bytes.fromhex(b["pdf_hex"])
     from io import BytesIO
+    fname = b.get("codigo") or f"acta_{batch_id[:8]}"
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="acta_{batch_id[:8]}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{fname}.pdf"'},
     )
 
 @api.get("/tools/reports/current")
