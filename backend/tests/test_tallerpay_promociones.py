@@ -14,7 +14,7 @@ class PromotionsRulesTests(unittest.TestCase):
             "nombre": "Instalación comercial", "cadena": "Kywi", "modelo": "ASI-365A",
             "categoria_resolucion": "INSTALACION NIVEL 1", "linea": "blanca",
             "producto": "AIRE ACONDICIONADO", "vigente_desde": "2026-01-01",
-            "vigente_hasta": "2026-12-31",
+            "vigente_hasta": "2026-12-31", "precio_promocional": "10.00",
         })
         self.base["id"] = "PROMO-1"
         self.base["activo"] = True
@@ -39,6 +39,7 @@ class PromotionsRulesTests(unittest.TestCase):
 
     def test_classifications(self):
         self.assertEqual(classify(self.ticket, [self.base])["clasificacion"], "CS_Com")
+        self.assertEqual(classify(self.ticket, [self.base])["precio_promocional"], "10.00")
         self.assertEqual(classify({**self.ticket, "modelo": "NO-EXISTE"}, [self.base])["clasificacion"], "CS_Exp")
         for overrides in [
             {"fecha_solucion": None}, {"causa_no_solucion": "Cliente ausente"},
