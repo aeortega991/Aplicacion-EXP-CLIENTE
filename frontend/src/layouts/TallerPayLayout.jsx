@@ -1,11 +1,12 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Store, Tags, ListChecks, BadgePercent, FileUp, Calculator, History, ArrowLeft } from "lucide-react";
+import { LayoutDashboard, Store, Tags, Boxes, ListChecks, BadgePercent, FileUp, Calculator, History, ArrowLeft } from "lucide-react";
 
 const SECTIONS = [
   { path: "", key: "tp_dashboard", name: "Dashboard", icon: LayoutDashboard, end: true },
   { path: "talleres", key: "tp_talleres", name: "Talleres tercerizados", icon: Store },
   { path: "tarifarios", key: "tp_tarifarios", name: "Tarifarios", icon: Tags },
+  { path: "productos", key: "tp_tarifarios", name: "Productos y líneas", icon: Boxes },
   { path: "codificador", key: "tp_codificador", name: "Codificador ACT", icon: ListChecks },
   { path: "promociones", key: "tp_promociones", name: "Promociones comerciales", icon: BadgePercent },
   { path: "importacion", key: "tp_importacion", name: "Importación SAP", icon: FileUp },
