@@ -38,8 +38,8 @@ export default function TarifarioMatrizPage() {
     if(!id){setMatrix([]);setLegacy([]);return}
     try {
       const [m,l]=await Promise.all([
-        api.get("/tallerpay/tarifarios/matriz",{params:{taller_id:id}}),
-        api.get("/tallerpay/tarifarios/legado",{params:{taller_id:id}})
+        api.get("/tallerpay/matriz-tarifaria",{params:{taller_id:id}}),
+        api.get("/tallerpay/matriz-tarifaria/legado",{params:{taller_id:id}})
       ]);
       setMatrix(m.data.items);setLegacy(l.data.items);setEdit({});
     } catch(e){toast.error(formatApiError(e))}
@@ -56,7 +56,7 @@ export default function TarifarioMatrizPage() {
     if(!valor) return toast.error("Introduzca una tarifa");
     setSaving(true);
     try{
-      await api.put("/tallerpay/tarifarios/matriz",{taller_id:id,linea,nivel,valor});
+      await api.put("/tallerpay/matriz-tarifaria",{taller_id:id,linea,nivel,valor});
       toast.success("Tarifa guardada");await loadMatrix();
     }catch(err){toast.error(formatApiError(err))}
     finally{setSaving(false)}
@@ -65,7 +65,7 @@ export default function TarifarioMatrizPage() {
     if(!window.confirm("¿Copiar las tarifas históricas mapeadas a la nueva matriz? Los datos anteriores no se eliminarán."))return;
     setSaving(true);
     try{
-      const response=await api.post("/tallerpay/tarifarios/migrar",{mapa:mapping},{params:{taller_id:id}});
+      const response=await api.post("/tallerpay/matriz-tarifaria/migrar",{mapa:mapping},{params:{taller_id:id}});
       if(response.data.applied){toast.success(`Se copiaron ${response.data.migrated} tarifas`);loadMatrix()}
       else toast.error(response.data.errors?.join("; ")||"No se pudo migrar");
     }catch(err){toast.error(formatApiError(err))}
