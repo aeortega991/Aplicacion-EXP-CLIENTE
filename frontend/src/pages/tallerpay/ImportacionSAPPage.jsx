@@ -83,12 +83,18 @@ export default function ImportacionSAPPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {stat("Tickets válidos",preview.total_validos)}
           {stat("Errores",preview.total_errores)}
+          {stat("Advertencias",preview.total_advertencias||0)}
           {stat("Facturados",preview.facturados)}
           {stat("Foráneos",preview.foraneos)}
         </div>
         <p className="text-sm">Hoja: <strong>{preview.hoja}</strong> · Períodos: {Object.entries(preview.periodos||{}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
         <p className="text-sm">Técnicos: {(preview.tecnicos||[]).length} · Asignación a talleres: pendiente de revisión en el módulo de liquidación.</p>
         {preview.ya_importado&&<p className="text-amber-700 text-sm"><AlertTriangle className="inline w-4 h-4"/> Este archivo ya fue importado. No se duplicará.</p>}
+        {(preview.total_advertencias||0)>0&&<div className="border border-amber-200 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+          <h3 className="font-semibold">Advertencias no bloqueantes ({preview.total_advertencias})</h3>
+          <p>Los tickets se pueden importar, pero estas fechas de Inicio Prometida requieren revisión posterior.</p>
+          <ul className="list-disc pl-5">{(preview.advertencias||[]).map((e,i)=><li key={i}>{e}</li>)}</ul>
+        </div>}
         {preview.total_errores>0&&<div className="border border-red-200 rounded-md bg-red-50 p-3 text-sm text-red-700">
           <h3 className="font-semibold">Errores de validación</h3>
           <ul className="list-disc pl-5">{(preview.errores||[]).map((e,i)=><li key={i}>{e}</li>)}</ul>
