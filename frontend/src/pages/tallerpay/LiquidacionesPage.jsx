@@ -35,7 +35,7 @@ export default function LiquidacionesPage(){
   },[period]);
   useEffect(()=>{refresh()},[refresh]);
   useEffect(()=>{setPreview(null);setTechnicianCode("");setKms({});setActive(null)},[period]);
-  useEffect(()=>{setPreview(null);setKms({})},[technicianCode]);
+  useEffect(()=>{setPreview(null);setKms({});setActive(null)},[technicianCode]);
   useEffect(()=>{
     api.get("/tallerpay/catalogo/lineas").then(r=>setLines(r.data.items||[])).catch(()=>{});
   },[]);
