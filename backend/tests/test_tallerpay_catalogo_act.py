@@ -29,6 +29,25 @@ class CatalogoActTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 money_number(bad)
 
+    def test_router_integrado_fastapi(self):
+        from fastapi import FastAPI
+        from tallerpay.router import create_tallerpay_router
+
+        async def current_user():
+            return {"role": "admin"}
+
+        async def permissions(user):
+            return {}
+
+        app = FastAPI()
+        app.include_router(create_tallerpay_router(current_user, permissions, db=object()))
+        paths = app.openapi()["paths"]
+        self.assertIn("/api/tallerpay/catalogo/lineas", paths)
+        self.assertIn("/api/tallerpay/catalogo/pesos", paths)
+        self.assertIn("/api/tallerpay/act/import", paths)
+        self.assertIn("/api/tallerpay/matriz-tarifaria", paths)
+        self.assertIn("put", paths["/api/tallerpay/matriz-tarifaria"])
+
     def test_endpoints_esperados(self):
         async def user():
             return {"role": "admin"}
