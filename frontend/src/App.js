@@ -38,6 +38,10 @@ import CiudadesPage from "@/pages/CiudadesPage";
 import ViajeSalidaPage from "@/pages/viajes/ViajeSalidaPage";
 import ViajeRetornoPage from "@/pages/viajes/ViajeRetornoPage";
 import RutasServicioPage from "@/pages/viajes/RutasServicioPage";
+import DocumentosLayout from "@/layouts/DocumentosLayout";
+import NuevaEntrega from "@/pages/documentos/NuevaEntrega";
+import EntregasList from "@/pages/documentos/EntregasList";
+import DocsDashboard from "@/pages/documentos/DocsDashboard";
 import { MODULES } from "@/config/modules";
 import "@/index.css";
 
@@ -66,6 +70,11 @@ const RequireTicketRole = ({ children }) => {
   const { user } = useAuth();
   if (!TS_ROLES.includes(user?.role)) return <Navigate to="/" replace />;
   return children;
+};
+
+const DocsIndex = () => {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === "admin" ? "/documentos/dashboard" : "/documentos/recibidas"} replace />;
 };
 
 function App() {
@@ -122,6 +131,14 @@ function App() {
             <Route path="listado" element={<TicketsList />} />
             <Route path="t/:id" element={<TicketDetail />} />
             <Route path="ciudades" element={<AdminOnly><CiudadesPage /></AdminOnly>} />
+          </Route>
+          <Route path="/documentos" element={<Protected><RequireAccess resource="documentos"><DocumentosLayout /></RequireAccess></Protected>}>
+            <Route index element={<DocsIndex />} />
+            <Route path="nueva" element={<NuevaEntrega />} />
+            <Route path="recibidas" element={<EntregasList key="recibidas" scope="recibidas" />} />
+            <Route path="enviadas" element={<EntregasList key="enviadas" scope="enviadas" />} />
+            <Route path="todas" element={<AdminOnly><EntregasList key="todas" scope="todas" /></AdminOnly>} />
+            <Route path="dashboard" element={<AdminOnly><DocsDashboard /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -119,6 +119,7 @@ PERMISSION_RESOURCES = [
     {"key": "gas_alertas", "module": "Gastos", "label": "Alertas", "editable": False},
     {"key": "gas_solicitudes", "module": "Gastos", "label": "Solicitudes", "editable": True},
     {"key": "gas_reportes", "module": "Gastos", "label": "Reportes", "editable": False},
+    {"key": "documentos", "module": "Entregas de documentos", "label": "Acceso al módulo", "editable": False},
 ]
 MATRIX_ROLES = ["user", "coordinador", "lider", "tesorero", "gerente", "tecnico", "analista_tecnico"]
 VEH_MODULE_RESOURCE = {
@@ -134,7 +135,9 @@ def _default_perms_for_role(role: str) -> dict:
     """Valores por defecto: ver=sí para todos; crear/editar=solo admin (false para el resto).
     Técnico: sin Herramientas; en Vehículos solo lectura; solo registra Rutas (sin ver listado)."""
     if role == "analista_tecnico":
-        return {r["key"]: {"view": False, "edit": False} for r in PERMISSION_RESOURCES}
+        perms = {r["key"]: {"view": False, "edit": False} for r in PERMISSION_RESOURCES}
+        perms["documentos"] = {"view": True, "edit": False}  # Entregas de documentos: todos los usuarios
+        return perms
     perms = {r["key"]: {"view": True, "edit": r["editable"] and r["module"] in ("Herramientas", "Gastos")} for r in PERMISSION_RESOURCES}
     if role == "tecnico":
         for r in PERMISSION_RESOURCES:
@@ -4471,6 +4474,10 @@ app.add_event_handler("startup", _trips_startup)
 _ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, _send_email, APP_BASE_URL, EMAIL_FROM_NAME)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
+from documents import create_documents_router  # noqa: E402
+_docs_router, _docs_startup = create_documents_router(db, get_current_user, _effective_perms, _send_email, APP_BASE_URL, EMAIL_FROM_NAME, _pdf_brand_header)
+app.include_router(_docs_router)
+app.add_event_handler("startup", _docs_startup)
 
 app.add_middleware(
     CORSMiddleware,

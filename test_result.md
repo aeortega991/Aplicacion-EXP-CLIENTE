@@ -211,6 +211,18 @@ backend:
         agent: "testing"
         comment: "Regression test PASSED. POST /api/auth/login with wrong password returns 401 (NOT 404). Bug fix verified - the 404 error is resolved."
 
+  - task: "Entregas de documentos (backend /api/docs/*)"
+    implemented: true
+    working: "NA"
+    file: "backend/documents.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Nuevo módulo. Endpoints /api/docs/meta, POST/GET /api/docs/entregas (scope recibidas|enviadas|todas[admin]), GET /api/docs/entregas/{id}, POST /api/docs/entregas/{id}/aceptar (solo receptor), GET /api/docs/entregas/{id}/acta (PDF), GET /api/docs/pendientes, GET /api/docs/dashboard (admin). Código CD-AAAA-000001, email al receptor."
+
 frontend:
   - task: "Login Flow - Admin User (UI)"
     implemented: true

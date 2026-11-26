@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck, Ticket } from "lucide-react";
+import { Truck, Wrench, LogOut, ArrowRight, Receipt, ShieldCheck, Ticket, FileSignature } from "lucide-react";
 
 const ModuleCard = ({ to, icon: Icon, title, subtitle, tag, gradient, testId }) => (
   <Link
@@ -100,6 +100,17 @@ export default function Hub() {
               tag="Asistencia"
               gradient="bg-gradient-to-br from-[#0033a0] to-[#29abe2]"
               testId="hub-tickets-card"
+            />
+          )}
+          {can("documentos") && (
+            <ModuleCard
+              to="/documentos"
+              icon={FileSignature}
+              title="Entregas de documentos"
+              subtitle="Registra contratos, actas de entrega y capacitaciones; el receptor confirma la recepción y se genera el acta en PDF."
+              tag="Documentos"
+              gradient="bg-gradient-to-br from-emerald-600 to-[#0033a0]"
+              testId="hub-documentos-card"
             />
           )}
           {user?.role === "admin" && (
