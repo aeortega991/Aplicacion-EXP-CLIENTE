@@ -27,7 +27,7 @@ class TallerpayAccessTest(unittest.TestCase):
         async def permissions(user):
             return {}
         router = create_tallerpay_router(current_user, permissions, db=object())
-        paths = {route.path for route in router.routes}
+        paths = {route.path for route in router.routes if hasattr(route, "path")}
         for p in ("/api/tallerpay/talleres", "/api/tallerpay/tarifarios", "/api/tallerpay/talleres/{wid}/archivos"):
             self.assertIn(p, paths)
         self.assertIsNotNone(router.startup)
