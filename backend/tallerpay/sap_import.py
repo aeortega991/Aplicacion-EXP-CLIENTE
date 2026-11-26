@@ -130,9 +130,18 @@ def parse_sap_xml(content):
             seen.add(ticket_id)
             record = {key: cells.get(col, "") for key, col in FIELDS.items()}
             record["ticket_id"] = ticket_id
+            original_start = record["inicio_prometida"]
+            record["inicio_prometida_original"] = original_start
             try:
-                for field in DATE_FIELDS:
+                for field in DATE_FIELDS - {"inicio_prometida"}:
                     record[field] = parse_date(record[field])
+                try:
+                    record["inicio_prometida"] = parse_date(original_start)
+                except ValueError:
+                    record["inicio_prometida"] = None
+                    record["advertencia_inicio_prometida"] = (
+                        f"Fila {excel_row} (ticket {ticket_id}): fecha de Inicio Prometida no válida: {original_start}"
+                    )
             except ValueError as exc:
                 errors.append(f"Fila {excel_row} (ticket {ticket_id}): {exc}")
                 continue
@@ -213,9 +222,18 @@ def parse_sap_xlsx(content):
                 seen.add(ticket_id)
                 record = {key: at(col) for key, col in FIELDS.items()}
                 record["ticket_id"] = ticket_id
+                original_start = record["inicio_prometida"]
+                record["inicio_prometida_original"] = original_start
                 try:
-                    for field in DATE_FIELDS:
+                    for field in DATE_FIELDS - {"inicio_prometida"}:
                         record[field] = parse_date(record[field])
+                    try:
+                        record["inicio_prometida"] = parse_date(original_start)
+                    except ValueError:
+                        record["inicio_prometida"] = None
+                        record["advertencia_inicio_prometida"] = (
+                            f"Fila {row_num} (ticket {ticket_id}): fecha de Inicio Prometida no válida: {original_start}"
+                        )
                     repeated = at(14)
                     if repeated and record["fecha_solucion"] and parse_date(repeated) != record["fecha_solucion"]:
                         raise ValueError("fechas de solución I/N no coinciden")
@@ -246,8 +264,10 @@ def parse_sap_file(content, filename):
 
 def preview_summary(parsed):
     rows = parsed["tickets"]
+    warnings = [r["advertencia_inicio_prometida"] for r in rows if r.get("advertencia_inicio_prometida")]
     return {
         "hoja": parsed["hoja"], "total_validos": len(rows),
+        "total_advertencias": len(warnings), "advertencias": warnings[:100],
         "errores": parsed["errores"][:100], "total_errores": len(parsed["errores"]),
         "periodos": dict(Counter(x["periodo_solucion"] or "SIN_FECHA" for x in rows)),
         "tecnicos": [{"codigo": k, "nombre": name, "tickets": count}
