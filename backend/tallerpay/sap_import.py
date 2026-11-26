@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pymongo.errors import BulkWriteError
 
 from .common import clean, now_iso
+from .payment_rules import payment_eligibility
 
 SS_NS = "urn:schemas-microsoft-com:office:spreadsheet"
 SS = "{" + SS_NS + "}"
@@ -158,6 +159,7 @@ def parse_sap_xml(content):
             record["periodo_solucion"] = record["fecha_solucion"][:7] if record["fecha_solucion"] else None
             record["es_foraneo"] = is_foraneo(record["ruta"], record["ruta_codigo"])
             record["facturado"] = record["tipo_cobertura"].strip().upper() == "FACTURADO"
+            record.update(payment_eligibility(record))
             record["fila_origen"] = excel_row
             tickets.append(record)
             if len(tickets) > MAX_ROWS:
@@ -243,6 +245,7 @@ def parse_sap_xlsx(content):
                 record["periodo_solucion"] = record["fecha_solucion"][:7] if record["fecha_solucion"] else None
                 record["es_foraneo"] = is_foraneo(record["ruta"], record["ruta_codigo"])
                 record["facturado"] = record["tipo_cobertura"].strip().upper() == "FACTURADO"
+                record.update(payment_eligibility(record))
                 record["fila_origen"] = row_num
                 tickets.append(record)
                 if len(tickets) > MAX_ROWS:
@@ -275,6 +278,9 @@ def preview_summary(parsed):
                          (r["tecnico_codigo"], r["tecnico"]) for r in rows
                      ).items())],
         "facturados": sum(1 for r in rows if r["facturado"]),
+        "no_pagables": sum(1 for r in rows if r.get("no_pagable")),
+        "por_entrega": sum(1 for r in rows if "ENTREGA_EN_ASUNTO" in r.get("motivos", [])),
+        "por_referencia_ticket": sum(1 for r in rows if "REFERENCIA_OTRO_TICKET" in r.get("motivos", [])),
         "foraneos": sum(1 for r in rows if r["es_foraneo"]),
         "muestra": rows[:20],
     }
