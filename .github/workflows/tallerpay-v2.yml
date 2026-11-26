@@ -1,0 +1,41 @@
+name: TallerPay V2 - checks
+on:
+  push:
+    branches:
+      - feature/tallerpay/**
+  pull_request:
+    branches:
+      - main
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias mínimas de pruebas
+        run: python -m pip install 'fastapi>=0.110,<1' 'pydantic>=2,<3' pymongo 'python-multipart>=0.0.9' 'openpyxl>=3.1'
+      - name: Probar catálogos ACT y permisos
+        run: |
+          cd backend
+          python -m unittest discover -s tests -p 'test_tallerpay_catalogo_act.py' -v
+          python -m unittest discover -s tests -p 'test_tallerpay_access.py' -v
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - name: Instalar frontend
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+      - name: Compilar interfaz
+        working-directory: frontend
+        env:
+          CI: "false"
+          REACT_APP_BACKEND_URL: https://example.invalid
+        run: yarn build
