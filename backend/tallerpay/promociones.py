@@ -15,10 +15,11 @@ from pymongo.errors import DuplicateKeyError
 
 from .common import build_template, clean, now_iso, to_date
 from .payment_rules import payment_eligibility
+from .catalogo_act import money_number
 
 MAX_IMPORT_BYTES = 8 * 1024 * 1024
 PROMO_HEADERS = ["nombre", "cadena", "modelo", "categoria_resolucion", "linea", "producto",
-                 "vigente_desde", "vigente_hasta", "observaciones"]
+                 "vigente_desde", "vigente_hasta", "precio_promocional", "observaciones"]
 ANY = "*"
 
 
@@ -54,8 +55,13 @@ def normalize_promo(data):
     # Permitir cadena general solo si hay alguna otra restricción que identifique una promoción.
     if all(scope[k] == ANY for k in scope):
         raise ValueError("La promoción debe acotar al menos cadena, modelo, resolución, línea o producto")
+    try:
+        price = money_number(data.get("precio_promocional"))
+    except ValueError as exc:
+        raise ValueError(f"Precio promocional: {exc}") from exc
     return {
-        "nombre": nombre, **scope, "vigente_desde": start, "vigente_hasta": end,
+        "nombre": nombre, **scope, "precio_promocional": price,
+        "vigente_desde": start, "vigente_hasta": end,
         "observaciones": clean(data.get("observaciones")),
         "responsable_pago": "COMERCIAL",
     }
@@ -107,6 +113,7 @@ def classify(ticket, promotions):
                 "motivo": "Existen promociones coincidentes con igual especificidad"}
     p = winners[0]
     return {"clasificacion": "CS_Com", "promocion_id": p["id"],
+            "precio_promocional": p.get("precio_promocional"),
             "motivo": f"Promoción vigente: {p['nombre']}"}
 
 
@@ -120,6 +127,7 @@ class PromoIn(BaseModel):
     vigente_desde: str
     vigente_hasta: str
     observaciones: str = ""
+    precio_promocional: str
 
 
 class PromoState(BaseModel):
@@ -221,7 +229,7 @@ def create_promotions_router(db, get_current_user, effective_perms):
         await guard(user)
         return build_template(PROMO_HEADERS,
             ["Instalación asumida por Comercial", "KYWI", "*", "INSTALACION NIVEL 1",
-             "*", "AIRE ACONDICIONADO", "2026-01-01", "2026-12-31",
+             "*", "AIRE ACONDICIONADO", "2026-01-01", "2026-12-31", "10.00",
              "Ejemplo de estructura; ajustar según condiciones comerciales reales"],
             "plantilla_promociones_comerciales.xlsx")
 
@@ -235,7 +243,7 @@ def create_promotions_router(db, get_current_user, effective_perms):
             raise HTTPException(413, "El archivo supera 8 MB")
         from .common import read_rows
         headers, rows = read_rows(content)
-        needed = {"nombre", "cadena", "vigente_desde", "vigente_hasta"}
+        needed = {"nombre", "cadena", "vigente_desde", "vigente_hasta", "precio_promocional"}
         if not needed.issubset(set(headers)):
             raise HTTPException(400, "Faltan columnas: " + ", ".join(sorted(needed - set(headers))))
         docs, errors, seen = [], [], set()
@@ -246,7 +254,7 @@ def create_promotions_router(db, get_current_user, effective_perms):
                 errors.append(f"Fila {line}: {e}")
                 continue
             identity = tuple(data[k] for k in ("nombre", "cadena", "modelo", "categoria_resolucion",
-                                              "linea", "producto", "vigente_desde", "vigente_hasta"))
+                                              "linea", "producto", "vigente_desde", "vigente_hasta", "precio_promocional"))
             if identity in seen:
                 errors.append(f"Fila {line}: condición promocional duplicada dentro del Excel")
                 continue
