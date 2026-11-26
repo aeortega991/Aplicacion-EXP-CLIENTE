@@ -153,6 +153,90 @@ def parse_sap_xml(content):
     return {"hoja": source_sheet, "tickets": tickets, "errores": errors}
 
 
+def parse_sap_xlsx(content):
+    """Acepta un Excel convertido desde SAP, con las columnas originales y sus vacíos.
+
+    Localiza la fila de encabezados por nombre: B=Ticket, D=Estado, I=Fecha de solución.
+    Admite hojas renombradas y fechas Excel tipo datetime; no depende de que la fila sea 16.
+    """
+    from io import BytesIO
+    import openpyxl
+    if len(content) > MAX_BYTES:
+        raise ValueError("El archivo supera el máximo de 12 MB")
+    try:
+        wb = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError("Archivo Excel .xlsx inválido") from exc
+    try:
+        for sheet in wb.worksheets:
+            found = False
+            tickets, errors, seen = [], [], set()
+            for row_num, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_num > MAX_ROWS + 200:
+                    raise ValueError("El Excel supera el máximo de 50.000 tickets")
+                def at(col):
+                    value = row[col - 1] if len(row) >= col else None
+                    if value is None:
+                        return ""
+                    if isinstance(value, datetime):
+                        return value.strftime("%d.%m.%Y")
+                    from datetime import date
+                    if isinstance(value, date):
+                        return value.strftime("%d.%m.%Y")
+                    if isinstance(value, (int, float)) and float(value).is_integer():
+                        return str(int(value))
+                    return clean(value)
+                if not found:
+                    if (at(2).casefold() == "ticket" and
+                            at(4).casefold() == "estado" and
+                            "soluci" in at(9).casefold()):
+                        found = True
+                    continue
+                ticket_id = at(3)
+                if not ticket_id:
+                    if any(at(k) for k in (2, 4, 9, 22, 24)):
+                        errors.append(f"Fila {row_num}: ticket sin identificador en columna C")
+                    continue
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", ticket_id):
+                    errors.append(f"Fila {row_num}: identificador de ticket inválido")
+                    continue
+                if ticket_id in seen:
+                    errors.append(f"Fila {row_num}: ticket duplicado en el archivo: {ticket_id}")
+                    continue
+                seen.add(ticket_id)
+                record = {key: at(col) for key, col in FIELDS.items()}
+                record["ticket_id"] = ticket_id
+                try:
+                    for field in DATE_FIELDS:
+                        record[field] = parse_date(record[field])
+                    repeated = at(14)
+                    if repeated and record["fecha_solucion"] and parse_date(repeated) != record["fecha_solucion"]:
+                        raise ValueError("fechas de solución I/N no coinciden")
+                except ValueError as exc:
+                    errors.append(f"Fila {row_num} (ticket {ticket_id}): {exc}")
+                    continue
+                record["periodo_solucion"] = record["fecha_solucion"][:7] if record["fecha_solucion"] else None
+                record["es_foraneo"] = "FORAN" in (record["ruta"] + " " + record["ruta_codigo"]).upper()
+                record["facturado"] = record["tipo_cobertura"].strip().upper() == "FACTURADO"
+                record["fila_origen"] = row_num
+                tickets.append(record)
+                if len(tickets) > MAX_ROWS:
+                    raise ValueError("El Excel supera el máximo de 50.000 tickets")
+            if found:
+                return {"hoja": sheet.title, "tickets": tickets, "errores": errors}
+        raise ValueError("No se encontró el encabezado SAP (Ticket B, Estado D, Fecha solución I)")
+    finally:
+        wb.close()
+
+def parse_sap_file(content, filename):
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext == "xml":
+        return parse_sap_xml(content)
+    if ext == "xlsx":
+        return parse_sap_xlsx(content)
+    raise ValueError("Solo archivos .xml de SAP o Excel .xlsx convertidos")
+
+
 def preview_summary(parsed):
     rows = parsed["tickets"]
     return {
@@ -201,21 +285,21 @@ def create_sap_router(db, get_current_user, effective_perms):
         await db.tp_sap_imports.create_index("id", unique=True)
         await db.tp_sap_imports.create_index("hash", unique=True)
 
-    async def read_xml(file):
-        if not (file.filename or "").lower().endswith(".xml"):
-            raise HTTPException(400, "Seleccione el archivo XML SpreadsheetML exportado desde SAP")
+    async def read_upload(file):
+        if not (file.filename or "").lower().endswith((".xml", ".xlsx")):
+            raise HTTPException(400, "Seleccione un archivo SAP .xml o Excel .xlsx")
         payload = await file.read(MAX_BYTES + 1)
         if len(payload) > MAX_BYTES:
             raise HTTPException(413, "Archivo superior a 12 MB")
         try:
-            return payload, parse_sap_xml(payload)
+            return payload, parse_sap_file(payload, file.filename)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
     @router.post("/sap/preview")
     async def preview(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
         await guard(user)
-        data, parsed = await read_xml(file)
+        data, parsed = await read_upload(file)
         summary = preview_summary(parsed)
         summary["hash"] = file_digest(data)
         summary["ya_importado"] = bool(await db.tp_sap_imports.find_one({"hash": summary["hash"]}))
