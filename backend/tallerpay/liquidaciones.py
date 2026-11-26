@@ -17,7 +17,6 @@ from .productos import product_code
 from .promociones import classify
 from .catalogo_act import LEVELS
 
-KM_RATE = Decimal("0.20")
 Q = Decimal("0.01")
 
 
@@ -54,7 +53,7 @@ def summarize(items):
     return totals
 
 
-def create_line(ticket, technician, products, act, tariffs, specials, promos, kms):
+def create_line(ticket, technician, products, act, tariffs, specials, promos, kms, km_rate=None):
     """Construye una fotografía monetaria por ticket."""
     ticket_id = ticket["ticket_id"]
     result = {
@@ -85,6 +84,7 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
     result["promocion_id"] = classification.get("promocion_id")
     result["mano_obra"] = "0.00"
     result["valor_km"] = "0.00"
+    result["tarifa_km"] = str(km_rate) if km_rate is not None else None
     result["total"] = "0.00"
     result["km"] = None
     result["precio_origen"] = None
@@ -126,6 +126,14 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
         price = base
 
     if result["es_foraneo"]:
+        if km_rate is None:
+            result["errores"].append("Falta configurar tarifa por kilómetro del técnico en Tarifarios")
+        else:
+            try:
+                km_rate = usd(km_rate)
+                result["tarifa_km"] = str(km_rate)
+            except ValueError as exc:
+                result["errores"].append(f"Tarifa por kilómetro inválida: {exc}")
         if ticket_id not in kms:
             result["errores"].append("Falta ingresar kilometraje foráneo (puede ser cero)")
         else:
@@ -137,7 +145,7 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
         return result
     result["mano_obra"] = str(usd(price))
     result["precio_origen"] = base_origin
-    result["valor_km"] = str((Decimal(result["km"]) * KM_RATE).quantize(Q)) if result["es_foraneo"] else "0.00"
+    result["valor_km"] = str((Decimal(result["km"]) * usd(result["tarifa_km"])).quantize(Q)) if result["es_foraneo"] else "0.00"
     result["total"] = str((Decimal(result["mano_obra"]) + Decimal(result["valor_km"])).quantize(Q))
     return result
 
@@ -217,12 +225,14 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         tariffs = await db.tp_technician_tariffs.find({"tecnico_codigo": code}, {"_id": 0}).to_list(1000)
         specials = await db.tp_special_tariffs.find({"tecnico_codigo": code}, {"_id": 0}).to_list(1000)
         promotions = await db.tp_promotions.find({"activo": True}, {"_id": 0}).to_list(5000)
+        km_rate_doc = await db.tp_technician_km_rates.find_one({"tecnico_codigo": code}, {"_id": 0})
+        km_rate = km_rate_doc.get("valor_km") if km_rate_doc else None
         products = {x["codigo_sap"]: x for x in product_list}
         act_map = {x["codigo"]: x for x in act_list}
         tariff_map = {(x["linea"], x["nivel"]): x for x in tariffs}
         special_map = {(x["linea"], x["categoria_resolucion"]): x for x in specials}
         lines = [create_line(t, technician, products, act_map, tariff_map, special_map,
-                             promotions, payload.kilometros) for t in tickets]
+                             promotions, payload.kilometros, km_rate) for t in tickets]
         return technician, lines
 
     @router.get("/liquidaciones/tecnicos")
@@ -337,7 +347,10 @@ def create_liquidaciones_router(db, current_user, effective_perms):
             except ValueError as exc: raise HTTPException(400, str(exc))
             old_values[t["ticket_id"]] = t.get("km")
             t["km"] = str(n)
-            t["valor_km"] = str((n*KM_RATE).quantize(Q))
+            rate = t.get("tarifa_km")
+            if rate is None:
+                raise HTTPException(400, f"Ticket {t['ticket_id']}: falta tarifa de kilometraje del técnico")
+            t["valor_km"] = str((n * usd(rate)).quantize(Q))
             t["total"] = str((usd(t["mano_obra"])+usd(t["valor_km"])).quantize(Q))
         now = now_iso()
         update_result = await db.tp_settlements.update_one({"id": sid, "version": doc["version"]}, {
@@ -408,7 +421,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         wb = Workbook()
         wb.remove(wb.active)
         cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
-                "producto","linea","codigo_act","nivel","categoria_resolucion","ruta","km",
+                "producto","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
                 "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura"]
         for group, title in [("CS_Exp", "CS_Exp"), ("CS_Com", "CS_Com"), ("CS_NoPago", "CS_NoPago")]:
             ws = wb.create_sheet(title)
