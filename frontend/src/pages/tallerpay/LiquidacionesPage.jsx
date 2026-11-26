@@ -21,6 +21,7 @@ export default function LiquidacionesPage(){
   const [kms,setKms]=useState({}),[preview,setPreview]=useState(null);
   const [drafts,setDrafts]=useState([]),[active,setActive]=useState(null);
   const [busy,setBusy]=useState(false),[reason,setReason]=useState("");
+  const [adjust,setAdjust]=useState({ticket_id:"",nuevo_importe:"",motivo:""});
   const [special,setSpecial]=useState({linea:"",categoria_resolucion:"",valor:""});
   const [specials,setSpecials]=useState([]),[lines,setLines]=useState([]);
 
@@ -73,6 +74,15 @@ export default function LiquidacionesPage(){
       const payload=Object.fromEntries(target.filter(x=>kms[x.ticket_id]!==undefined).map(x=>[x.ticket_id,kms[x.ticket_id]]));
       const r=await api.put(`/tallerpay/liquidaciones/${active.id}/kilometros`,{kilometros:payload,motivo:reason});
       setActive(r.data);setReason("");toast.success("Kilometraje actualizado");refresh();
+    }catch(e){toast.error(formatApiError(e))}finally{setBusy(false)}
+  };
+  const adjustPrice=async()=>{
+    if(!adjust.ticket_id||!adjust.nuevo_importe||!adjust.motivo.trim()){toast.error("Complete ticket, valor y motivo");return}
+    setBusy(true);
+    try{
+      const r=await api.put(`/tallerpay/liquidaciones/${active.id}/ajustar`,adjust);
+      setActive(r.data);setAdjust({ticket_id:"",nuevo_importe:"",motivo:""});
+      toast.success("Ajuste registrado en historial");refresh();
     }catch(e){toast.error(formatApiError(e))}finally{setBusy(false)}
   };
   const close=async()=>{
@@ -174,6 +184,19 @@ export default function LiquidacionesPage(){
         <TableCell>{formatMoney(x.mano_obra)}</TableCell><TableCell>{formatMoney(x.valor_km)}</TableCell><TableCell>{formatMoney(x.total)}</TableCell>
       </TableRow>)}</TableBody></Table></div>
       {!active&&canEdit&&<Button disabled={busy||!!preview?.total_errores} onClick={create}>Guardar borrador</Button>}
+      {!!active&&editableKm&&<div className="border rounded-md p-3 space-y-2">
+        <h3 className="font-semibold">Ajustar importe manualmente con auditoría</h3>
+        <p className="text-xs text-neutral-500">Los cierres solo admiten ajustes de admin y coordinador. No se pueden pagar tickets CS_NoPago.</p>
+        <div className="flex flex-wrap gap-2">
+          <Select value={adjust.ticket_id||undefined} onValueChange={v=>setAdjust(p=>({...p,ticket_id:v}))}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Ticket"/></SelectTrigger>
+            <SelectContent>{active.tickets.filter(x=>!["CS_NoPago","PENDIENTE"].includes(x.clasificacion)).map(x=><SelectItem key={x.ticket_id} value={x.ticket_id}>{x.ticket_id}</SelectItem>)}</SelectContent>
+          </Select>
+          <Input className="w-32" type="number" min="0" step=".01" placeholder="USD" value={adjust.nuevo_importe} onChange={e=>setAdjust(p=>({...p,nuevo_importe:e.target.value}))}/>
+          <Input className="w-64" placeholder="Motivo obligatorio" value={adjust.motivo} onChange={e=>setAdjust(p=>({...p,motivo:e.target.value}))}/>
+          <Button disabled={busy||!adjust.ticket_id||!adjust.motivo||adjust.nuevo_importe===""} variant="outline" onClick={adjustPrice}>Guardar ajuste</Button>
+        </div>
+      </div>}
       {active&&<div className="flex flex-wrap items-center gap-2">
         <span className="text-sm">Liquidación {active.id.slice(0,8)} · <strong>{active.estado}</strong> · Versión {active.version}</span>
         <Button variant="outline" onClick={exportFile}><FileSpreadsheet className="w-4 h-4 mr-1"/>Excel 3 hojas</Button>
