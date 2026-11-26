@@ -90,6 +90,11 @@ try:
     check("no analyst -> stays Creado with warning", t2["estado"] == "Creado" and r.json()["warning"], r.text)
     la = requests.get(f"{API}/ts/tickets", headers=A).json()
     check("admin sees unassigned warning count", la["sin_asignar"] >= 1)
+    na1 = requests.get(f"{API}/ts/notifications", headers=N1).json()
+    check("notif: analyst notified on creation", any(n["ticket_id"] == t1["id"] and n["tipo"] == "creado" and not n["read"] for n in na1["items"]), na1)
+    nad = requests.get(f"{API}/ts/notifications", headers=A).json()
+    check("notif: admin notified of both tickets", {t1["id"], t2["id"]} <= {n["ticket_id"] for n in nad["items"]})
+    check("notif: creator not self-notified", all(n["ticket_id"] != t1["id"] for n in requests.get(f"{API}/ts/notifications", headers=T1).json()["items"]))
 
     check("tec2 cannot see tec1 ticket (API)", requests.get(f"{API}/ts/tickets/{t1['id']}", headers=T2).status_code == 404)
     check("ana2 cannot see tec1 ticket", requests.get(f"{API}/ts/tickets/{t1['id']}", headers=N2).status_code == 404)
@@ -102,6 +107,15 @@ try:
 
     r = requests.put(f"{API}/ts/tickets/{t2['id']}/asignar", headers=A, json={"analista_id": users["ts_ana2"]})
     check("admin manual assign -> Asignado", r.ok and r.json()["estado"] == "Asignado", r.text)
+    nt2 = requests.get(f"{API}/ts/notifications", headers=T2).json()
+    check("notif: tecnico notified on assignment", any(n["ticket_id"] == t2["id"] and n["tipo"] == "asignado" for n in nt2["items"]), nt2)
+    na2 = requests.get(f"{API}/ts/notifications", headers=N2).json()
+    check("notif: new analyst notified", any(n["ticket_id"] == t2["id"] and n["titulo"].startswith("Se te asignó") for n in na2["items"]) and na2["unread"] >= 1, na2)
+    requests.post(f"{API}/ts/notifications/read-all", headers=N2)
+    check("notif: read-all clears unread", requests.get(f"{API}/ts/notifications", headers=N2).json()["unread"] == 0)
+    nid = nt2["items"][0]["id"]
+    requests.post(f"{API}/ts/notifications/{nid}/read", headers=T2)
+    check("notif: mark one read", requests.get(f"{API}/ts/notifications", headers=T2).json()["unread"] == nt2["unread"] - 1)
     check("tec cannot reassign", requests.put(f"{API}/ts/tickets/{t1['id']}/asignar", headers=T1, json={"analista_id": users["ts_ana2"]}).status_code == 403)
 
     check("tec cannot change state", requests.put(f"{API}/ts/tickets/{t1['id']}/estado", headers=T1, json={"estado": "Cerrado"}).status_code == 403)
@@ -143,7 +157,7 @@ finally:
     from pymongo import MongoClient
     env = dict(l.split("=", 1) for l in open("/app/backend/.env").read().splitlines() if "=" in l)
     mdb = MongoClient(env["MONGO_URL"].strip('"'))[env["DB_NAME"].strip('"')]
-    for col in ("ts_media", "ts_messages", "ts_status_history"):
+    for col in ("ts_media", "ts_messages", "ts_status_history", "ts_notifications"):
         mdb[col].delete_many({"ticket_id": {"$in": created_tickets}})
     mdb.service_tickets.delete_many({"id": {"$in": created_tickets}})
     for uid in users.values():

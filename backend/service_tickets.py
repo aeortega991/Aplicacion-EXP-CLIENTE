@@ -3,6 +3,7 @@ import os
 import uuid
 import asyncio
 import logging
+from html import escape
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -95,8 +96,84 @@ class MensajeIn(BaseModel):
     texto: str
 
 
-def create_ticket_router(db, get_current_user, require_admin):
+def create_ticket_router(db, get_current_user, require_admin, send_email=None, app_base_url: str = "", from_name: str = ""):
     r = APIRouter(prefix="/api/ts")
+    bg_tasks = set()
+
+    def _email_html(titulo: str, mensaje: str, t: dict) -> str:
+        rows = "".join(
+            f'<tr><td style="padding:4px 0;color:#6B7280;font-size:13px;width:140px">{escape(k)}</td>'
+            f'<td style="padding:4px 0;font-size:13px;color:#111827">{escape(str(v or "—"))}</td></tr>'
+            for k, v in (("Ticket", t.get("numero")), ("Técnico", t.get("tecnico_nombre")), ("Ciudad", t.get("ciudad")),
+                         ("Analista", t.get("analista_nombre") or "Sin asignar"), ("Modelo", t.get("modelo")),
+                         ("Serie", t.get("serie")), ("Estado", t.get("estado"))))
+        link = f"{app_base_url}/tickets/t/{t['id']}" if app_base_url.startswith("https://") else ""
+        boton = (f'<p style="margin:18px 0 0"><a href="{escape(link)}" style="display:inline-block;background:#0033A0;color:#fff;'
+                 f'text-decoration:none;padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600">Ver ticket</a></p>') if link else ""
+        return (
+            f'<table role="presentation" width="100%" style="max-width:600px;margin:0 auto;font-family:Arial,Helvetica,sans-serif">'
+            f'<tr><td style="padding:24px"><div style="background:#0033A0;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">'
+            f'<div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;opacity:.75">Ticket servicio · {escape(from_name)}</div>'
+            f'<div style="font-size:18px;font-weight:700;margin-top:4px">{escape(titulo)}</div></div>'
+            f'<div style="border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;padding:20px">'
+            f'<p style="color:#374151;font-size:14px;margin:0 0 14px">{escape(mensaje)}</p>'
+            f'<table role="presentation" width="100%" style="border-collapse:collapse">{rows}</table>{boton}'
+            f'<p style="margin:18px 0 0;color:#9CA3AF;font-size:12px">Mensaje automático de {escape(from_name)}.</p>'
+            f'</div></td></tr></table>')
+
+    async def _safe_send(to: str, subject: str, html: str):
+        try:
+            await send_email(to=to, subject=subject, html=html)
+        except Exception as e:
+            logger.error(f"Email de ticket a {to} falló: {e}")
+
+    async def _notify(t: dict, event: str, actor: dict):
+        """Aviso en el menú de notificaciones + correo al técnico, analista y administradores (excepto quien actúa)."""
+        try:
+            ids = {t.get("tecnico_id"), t.get("analista_id")}
+            ids |= {a["id"] for a in await db.users.find({"role": ADMIN}, {"_id": 0, "id": 1}).to_list(200)}
+            ids -= {None, actor.get("id")}
+            if not ids:
+                return
+            users = await db.users.find({"id": {"$in": list(ids)}}, {"_id": 0, "id": 1, "email": 1}).to_list(200)
+            now, num = _now(), t["numero"]
+            docs = []
+            for u in users:
+                if event == "creado":
+                    titulo = f"Nuevo ticket {num}"
+                    mensaje = f"{t.get('tecnico_nombre')} registró el ticket {num} ({t.get('modelo')} · {t.get('serie')}). " + (
+                        f"Asignado a {t['analista_nombre']}." if t.get("analista_id") else "Pendiente de asignación de analista.")
+                else:
+                    titulo = f"Ticket {num} asignado"
+                    mensaje = f"El ticket {num} de {t.get('tecnico_nombre')} fue asignado a {t.get('analista_nombre')}."
+                if u["id"] == t.get("analista_id"):
+                    titulo = f"Se te asignó el ticket {num}"
+                docs.append({"id": str(uuid.uuid4()), "user_id": u["id"], "ticket_id": t["id"], "numero": num, "tipo": event,
+                             "titulo": titulo, "mensaje": mensaje, "read": False, "created_at": now})
+                if send_email and u.get("email"):
+                    task = asyncio.create_task(_safe_send(u["email"], titulo, _email_html(titulo, mensaje, t)))
+                    bg_tasks.add(task)
+                    task.add_done_callback(bg_tasks.discard)
+            if docs:
+                await db.ts_notifications.insert_many(docs)
+        except Exception:
+            logger.exception("Fallo al generar notificaciones del ticket %s", t.get("id"))
+
+    @r.get("/notifications")
+    async def my_notifications(user: dict = Depends(get_current_user)):
+        items = await db.ts_notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(30)
+        unread = await db.ts_notifications.count_documents({"user_id": user["id"], "read": False})
+        return {"items": items, "unread": unread}
+
+    @r.post("/notifications/read-all")
+    async def read_all(user: dict = Depends(get_current_user)):
+        await db.ts_notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
+        return {"ok": True}
+
+    @r.post("/notifications/{nid}/read")
+    async def read_one(nid: str, user: dict = Depends(get_current_user)):
+        await db.ts_notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+        return {"ok": True}
 
     async def ts_user(user: dict = Depends(get_current_user)) -> dict:
         if user.get("role") not in TS_ROLES:
@@ -237,6 +314,7 @@ def create_ticket_router(db, get_current_user, require_admin):
         except Exception:
             logger.exception("Fallo en asignación automática del ticket %s", tid)
             warning = "El ticket se registró pero no pudo asignarse automáticamente; el administrador lo asignará."
+        await _notify(doc, "creado", user)
         return {"ticket": doc, "warning": warning}
 
     @r.get("/tickets/{tid}")
@@ -321,6 +399,7 @@ def create_ticket_router(db, get_current_user, require_admin):
         if upd.get("estado"):
             await _log_state(tid, "Creado", "Asignado", user)
         t.update(upd)
+        await _notify(t, "asignado", user)
         return t
 
     @r.get("/tickets/{tid}/mensajes")
@@ -357,6 +436,8 @@ def create_ticket_router(db, get_current_user, require_admin):
         await db.ts_media.create_index("ticket_id")
         await db.ts_messages.create_index([("ticket_id", 1), ("created_at", 1)])
         await db.ts_status_history.create_index("ticket_id")
+        await db.ts_notifications.create_index([("user_id", 1), ("created_at", -1)])
+        await db.ts_notifications.create_index([("user_id", 1), ("read", 1)])
         try:
             await asyncio.to_thread(_init_storage)
         except Exception as e:

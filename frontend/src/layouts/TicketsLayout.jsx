@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Ticket, ArrowLeft, LogOut, Plus, LayoutDashboard, Columns3, List, MapPinned } from "lucide-react";
 import { TicketFilters, EMPTY_FILTERS } from "@/pages/tickets/TicketFilters";
 import { NewTicketDialog } from "@/pages/tickets/NewTicketDialog";
+import { NotificationsBell } from "@/pages/tickets/NotificationsBell";
 
 const EMPTY_DATA = { items: [], counts: {}, total: 0, sin_asignar: 0, max_mb: 25, options: { tecnicos: [], analistas: [] } };
 const FILTER_PATHS = ["/tickets", "/tickets/tablero", "/tickets/listado"];
@@ -62,6 +63,7 @@ export default function TicketsLayout() {
             <div className="text-sm font-medium leading-tight">{user?.name}</div>
             <div className="text-[11px] text-neutral-500">{user?.role}{user?.ciudad ? ` · ${user.ciudad}` : ""}</div>
           </div>
+          <NotificationsBell />
           <Button variant="outline" size="icon" onClick={() => { logout(); navigate("/login"); }} data-testid="ts-logout"><LogOut className="w-4 h-4" /></Button>
         </div>
         <nav className="max-w-7xl mx-auto px-3 sm:px-6 pb-2 flex gap-1 overflow-x-auto" data-testid="ts-nav">

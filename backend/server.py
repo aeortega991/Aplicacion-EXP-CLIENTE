@@ -4468,7 +4468,7 @@ app.add_event_handler("startup", _catalog_startup_handler)
 _trips_router, _trips_startup = create_trips_router(db, get_current_user, _effective_perms, _require_resource_edit, _resolve_cities, _filter_by_cities)
 app.include_router(_trips_router)
 app.add_event_handler("startup", _trips_startup)
-_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin)
+_ts_router, _ts_startup = create_ticket_router(db, get_current_user, require_admin, _send_email, APP_BASE_URL, EMAIL_FROM_NAME)
 app.include_router(_ts_router)
 app.add_event_handler("startup", _ts_startup)
 
