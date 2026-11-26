@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from pydantic import BaseModel
 from pymongo.errors import DuplicateKeyError
 
+from .catalogo_act import create_catalogo_act_router
 from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, num_text, read_rows,
                      to_date, to_number, upper)
 
@@ -112,7 +113,10 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         await db.tp_tariffs.create_index([("taller_id", 1), ("linea", 1), ("peso", 1)], unique=True, name="uniq_tarifa")
         await db.tp_tariffs.create_index("id", unique=True)
         await db.tp_tariff_files.create_index([("taller_id", 1), ("is_deleted", 1)])
+        await _catalogo_startup()
 
+    _catalogo_router, _catalogo_startup = create_catalogo_act_router(db, get_current_user, effective_perms)
+    router.include_router(_catalogo_router)
     router.startup = startup
 
     # ------------------------------------------------------------------ helpers
@@ -145,6 +149,10 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if isinstance(raw, str):
             raw = [x for x in raw.replace(";", ",").split(",")]
         lineas = sorted({norm_linea(x) for x in (raw or []) if norm_linea(x)})
+        if lineas:
+            known = await db.tp_lines.find({"codigo": {"$in": lineas}, "activo": True}).to_list(500)
+            if len(known) != len(lineas):
+                raise ValueError("Una o más líneas no están registradas en el catálogo")
         if not lineas:
             raise ValueError("Indique al menos una línea (blanca, cafe)")
         telefono = num_text(p.get("telefono"))
@@ -169,7 +177,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if not linea:
             raise ValueError("Línea inválida (use blanca o cafe)")
         if linea not in w.get("lineas", []):
-            raise ValueError(f"El taller {w['codigo_sap']} no atiende {LINEAS[linea]}")
+            raise ValueError(f"El taller {w['codigo_sap']} no atiende {LINEAS.get(linea, linea)}")
         peso = to_number(p.get("peso"), "peso", 0)
         valor = to_number(p.get("valor"), "valor", 0)
         if peso > 1000:
@@ -247,7 +255,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
                 fields = await workshop_fields(rec)
                 removed = set(prev.get("lineas", [])) - set(fields["lineas"]) if prev else set()
                 if removed and await db.tp_tariffs.count_documents({"taller_id": prev["id"], "linea": {"$in": list(removed)}}):
-                    raise ValueError(f"no se puede quitar {', '.join(LINEAS[x] for x in sorted(removed))}: tiene tarifas registradas")
+                    raise ValueError(f"no se puede quitar {', '.join(LINEAS.get(x, x) for x in sorted(removed))}: tiene tarifas registradas")
             except ValueError as e:
                 errors.append(f"Fila {idx}: {e}")
                 continue
@@ -340,7 +348,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         try:
             await db.tp_tariffs.insert_one(doc)
         except DuplicateKeyError:
-            raise HTTPException(status_code=400, detail=f"Ya existe una tarifa para {LINEAS[fields['linea']]} con peso {fields['peso']:g}")
+            raise HTTPException(status_code=400, detail=f"Ya existe una tarifa para {LINEAS.get(fields['linea'], fields['linea'])} con peso {fields['peso']:g}")
         doc.pop("_id", None)
         return doc
 
