@@ -1,6 +1,6 @@
 """Motor de liquidaciones TallerPay — borradores, kilómetro manual y cierre auditable.
 
-Técnicos y talleres NO tienen relación persistente. Se eligen por liquidación.
+Cada liquidación pertenece a un técnico existente; sus tarifas son propias.
 No se permite usar registros con precio ambiguo o sin mapeo producto→línea.
 """
 import uuid
@@ -54,7 +54,7 @@ def summarize(items):
     return totals
 
 
-def create_line(ticket, workshop, products, act, tariffs, specials, promos, kms):
+def create_line(ticket, technician, products, act, tariffs, specials, promos, kms):
     """Construye una fotografía monetaria por ticket."""
     ticket_id = ticket["ticket_id"]
     result = {
@@ -114,7 +114,7 @@ def create_line(ticket, workshop, products, act, tariffs, specials, promos, kms)
         base = None
         base_origin = None
     if base is None:
-        result["errores"].append("No existe tarifa aplicable del taller")
+        result["errores"].append("No existe tarifa asociada al técnico")
     # Una promoción comercial siempre sustituye el importe contractual normal.
     if result["clasificacion"] == "CS_Com":
         if classification.get("precio_promocional") is None:
@@ -143,9 +143,8 @@ def create_line(ticket, workshop, products, act, tariffs, specials, promos, kms)
 
 
 class DraftIn(BaseModel):
-    taller_id: str
+    tecnico_codigo: str
     periodo: str
-    tecnicos: list[str] = Field(min_length=1)
     kilometros: dict[str, str] = Field(default_factory=dict)
 
 
@@ -165,7 +164,7 @@ class CloseIn(BaseModel):
 
 
 class SpecialIn(BaseModel):
-    taller_id: str
+    tecnico_codigo: str
     linea: str
     categoria_resolucion: str
     valor: str
@@ -191,39 +190,40 @@ def create_liquidaciones_router(db, current_user, effective_perms):
 
     async def startup():
         await db.tp_settlements.create_index("id", unique=True)
-        await db.tp_settlements.create_index([("taller_id", 1), ("periodo", 1)])
+        await db.tp_settlements.create_index([("tecnico_codigo", 1), ("periodo", 1)])
+        await db.tp_technician_tariffs.create_index([("tecnico_codigo", 1), ("linea", 1), ("nivel", 1)], unique=True)
         await db.tp_special_tariffs.create_index(
-            [("taller_id", 1), ("linea", 1), ("categoria_resolucion", 1)], unique=True)
+            [("tecnico_codigo", 1), ("linea", 1), ("categoria_resolucion", 1)], unique=True)
 
     async def generate(payload):
         if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", payload.periodo):
             raise HTTPException(400, "Período inválido")
-        techs = sorted({clean(t) for t in payload.tecnicos if clean(t)})
-        if not techs:
-            raise HTTPException(400, "Seleccione al menos un técnico")
-        workshop = await db.tp_workshops.find_one({"id": payload.taller_id}, {"_id": 0})
-        if not workshop or not workshop.get("activo", False):
-            raise HTTPException(400, "Taller no encontrado o inactivo")
+        code = clean(payload.tecnico_codigo)
+        if not code:
+            raise HTTPException(400, "Debe seleccionar un técnico")
+        technician = await db.tool_technicians.find_one({"codigo": code}, {"_id": 0})
+        if not technician:
+            raise HTTPException(400, "El técnico seleccionado no existe en el catálogo")
         tickets = await db.tp_sap_tickets.find(
-            {"periodo_solucion": payload.periodo, "tecnico_codigo": {"$in": techs}},
+            {"periodo_solucion": payload.periodo, "tecnico_codigo": code},
             {"_id": 0}).to_list(50000)
         if not tickets:
-            raise HTTPException(400, "No existen tickets SAP para el período y técnicos seleccionados")
+            raise HTTPException(400, "Sin tickets SAP para el técnico y período")
         # No asociar técnicos con talleres en una colección permanente.
         codes = list({product_code(t.get("producto_codigo")) for t in tickets if t.get("producto_codigo")})
         acts = list({clean(t.get("codigo_act")).upper() for t in tickets if t.get("codigo_act")})
         product_list = await db.tp_product_lines.find({"codigo_sap": {"$in": codes}}, {"_id": 0}).to_list(10000)
         act_list = await db.tp_act_codes.find({"codigo": {"$in": acts}}, {"_id": 0}).to_list(10000)
-        tariffs = await db.tp_tariff_matrix.find({"taller_id": payload.taller_id}, {"_id": 0}).to_list(1000)
-        specials = await db.tp_special_tariffs.find({"taller_id": payload.taller_id}, {"_id": 0}).to_list(1000)
+        tariffs = await db.tp_technician_tariffs.find({"tecnico_codigo": code}, {"_id": 0}).to_list(1000)
+        specials = await db.tp_special_tariffs.find({"tecnico_codigo": code}, {"_id": 0}).to_list(1000)
         promotions = await db.tp_promotions.find({"activo": True}, {"_id": 0}).to_list(5000)
         products = {x["codigo_sap"]: x for x in product_list}
         act_map = {x["codigo"]: x for x in act_list}
         tariff_map = {(x["linea"], x["nivel"]): x for x in tariffs}
         special_map = {(x["linea"], x["categoria_resolucion"]): x for x in specials}
-        lines = [create_line(t, workshop, products, act_map, tariff_map, special_map,
+        lines = [create_line(t, technician, products, act_map, tariff_map, special_map,
                              promotions, payload.kilometros) for t in tickets]
-        return workshop, lines
+        return technician, lines
 
     @router.get("/liquidaciones/tecnicos")
     async def technicians(periodo: str, user: dict = Depends(current_user)):
@@ -263,9 +263,9 @@ def create_liquidaciones_router(db, current_user, effective_perms):
     @router.post("/liquidaciones/preview")
     async def preview(payload: DraftIn, user: dict = Depends(current_user)):
         await guard(user)
-        workshop, lines = await generate(payload)
+        technician, lines = await generate(payload)
         errors = [f"{t['ticket_id']}: {', '.join(t['errores'])}" for t in lines if t["errores"]]
-        return {"taller": workshop, "periodo": payload.periodo, "tickets": lines,
+        return {"tecnico": technician, "periodo": payload.periodo, "tickets": lines,
                 "errores": errors[:200], "total_errores": len(errors), "totales": summarize(lines)}
 
     @router.post("/liquidaciones")
@@ -281,9 +281,9 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         if used:
             raise HTTPException(409, "Tickets ya incluidos en otra liquidación")
         now = now_iso()
-        doc = {"id": str(uuid.uuid4()), "taller_id": workshop["id"],
-               "taller_nombre": workshop.get("nombre", ""), "codigo_sap": workshop.get("codigo_sap", ""),
-               "periodo": payload.periodo, "tecnicos": sorted(set(payload.tecnicos)),
+        doc = {"id": str(uuid.uuid4()), "tecnico_codigo": clean(technician["codigo"]),
+               "tecnico_nombre": " ".join(filter(None, [technician.get("nombre"), technician.get("apellido")])),
+               "periodo": payload.periodo,
                "tickets": lines, "totales": summarize(lines),
                "estado": "BORRADOR", "version": 1, "created_at": now, "updated_at": now,
                "created_by": actor(user),
@@ -412,7 +412,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        filename = f"TallerPay_{doc['codigo_sap']}_{doc['periodo']}.xlsx"
+        filename = f"TallerPay_{doc['tecnico_codigo']}_{doc['periodo']}.xlsx"
         return StreamingResponse(output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
