@@ -14,6 +14,8 @@ import TarifarioMatrizPage from "@/pages/tallerpay/TarifarioMatrizPage";
 import CodificadorPage from "@/pages/tallerpay/CodificadorPage";
 import PromocionesPage from "@/pages/tallerpay/PromocionesPage";
 import ImportacionSAPPage from "@/pages/tallerpay/ImportacionSAPPage";
+import ProductosLineasPage from "@/pages/tallerpay/ProductosLineasPage";
+import LiquidacionesPage from "@/pages/tallerpay/LiquidacionesPage";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
@@ -171,10 +173,11 @@ function App() {
             <Route index element={<RequireAccess resource="tp_dashboard"><TallerPayPage section="dashboard" /></RequireAccess>} />
             <Route path="talleres" element={<RequireAccess resource="tp_talleres"><TalleresPage /></RequireAccess>} />
             <Route path="tarifarios" element={<RequireAccess resource="tp_tarifarios"><TarifarioMatrizPage /></RequireAccess>} />
+            <Route path="productos" element={<RequireAccess resource="tp_tarifarios"><ProductosLineasPage /></RequireAccess>} />
             <Route path="codificador" element={<RequireAccess resource="tp_codificador"><CodificadorPage /></RequireAccess>} />
             <Route path="promociones" element={<RequireAccess resource="tp_promociones"><PromocionesPage /></RequireAccess>} />
             <Route path="importacion" element={<RequireAccess resource="tp_importacion"><ImportacionSAPPage /></RequireAccess>} />
-            <Route path="liquidaciones" element={<RequireAccess resource="tp_liquidaciones"><TallerPayPage section="liquidaciones" /></RequireAccess>} />
+            <Route path="liquidaciones" element={<RequireAccess resource="tp_liquidaciones"><LiquidacionesPage /></RequireAccess>} />
             <Route path="historial" element={<RequireAccess resource="tp_historial"><TallerPayPage section="historial" /></RequireAccess>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
