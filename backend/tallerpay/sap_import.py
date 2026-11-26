@@ -241,7 +241,7 @@ def parse_sap_xlsx(content):
                     errors.append(f"Fila {row_num} (ticket {ticket_id}): {exc}")
                     continue
                 record["periodo_solucion"] = record["fecha_solucion"][:7] if record["fecha_solucion"] else None
-                record["es_foraneo"] = "FORAN" in (record["ruta"] + " " + record["ruta_codigo"]).upper()
+                record["es_foraneo"] = is_foraneo(record["ruta"], record["ruta_codigo"])
                 record["facturado"] = record["tipo_cobertura"].strip().upper() == "FACTURADO"
                 record["fila_origen"] = row_num
                 tickets.append(record)
