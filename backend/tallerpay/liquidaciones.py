@@ -239,21 +239,21 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         return {"items": [{"codigo": x["_id"], "nombre": x["nombre"], "tickets": x["tickets"]} for x in docs]}
 
     @router.get("/liquidaciones/especiales")
-    async def special_tariffs(taller_id: str, user: dict = Depends(current_user)):
+    async def special_tariffs(tecnico_codigo: str, user: dict = Depends(current_user)):
         await guard(user)
-        return {"items": await db.tp_special_tariffs.find({"taller_id": taller_id}, {"_id": 0}).to_list(1000)}
+        return {"items": await db.tp_special_tariffs.find({"tecnico_codigo": clean(tecnico_codigo)}, {"_id": 0}).to_list(1000)}
 
     @router.put("/liquidaciones/especiales")
     async def save_special(payload: SpecialIn, user: dict = Depends(current_user)):
         await guard(user, edit=True)
-        workshop = await db.tp_workshops.find_one({"id": payload.taller_id}, {"_id": 0})
-        if not workshop or payload.linea not in workshop.get("lineas", []):
-            raise HTTPException(400, "Taller o línea no válidos")
+        technician = await db.tool_technicians.find_one({"codigo": clean(payload.tecnico_codigo)}, {"_id": 0})
+        if not technician or not await db.tp_lines.find_one({"codigo": payload.linea, "activo": True}):
+            raise HTTPException(400, "Técnico o línea no válidos")
         category = clean(payload.categoria_resolucion).upper()
         if not category: raise HTTPException(400, "Categoría de resolución obligatoria")
         try: value = str(usd(payload.valor, False))
         except ValueError as exc: raise HTTPException(400, str(exc))
-        query = {"taller_id": payload.taller_id, "linea": payload.linea, "categoria_resolucion": category}
+        query = {"tecnico_codigo": clean(payload.tecnico_codigo), "linea": payload.linea, "categoria_resolucion": category}
         await db.tp_special_tariffs.update_one(query, {
             "$set": {"valor": value, "updated_at": now_iso(), "updated_by": actor(user)},
             "$setOnInsert": {"id": str(uuid.uuid4())},
@@ -271,7 +271,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
     @router.post("/liquidaciones")
     async def create(payload: DraftIn, user: dict = Depends(current_user)):
         await guard(user, edit=True)
-        workshop, lines = await generate(payload)
+        technician, lines = await generate(payload)
         errors = [f"{t['ticket_id']}: {', '.join(t['errores'])}" for t in lines if t["errores"]]
         if errors:
             raise HTTPException(422, {"message": "Liquidación incompleta", "errores": errors[:200]})
