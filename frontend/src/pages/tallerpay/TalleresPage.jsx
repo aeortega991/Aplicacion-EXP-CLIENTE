@@ -25,7 +25,7 @@ const Stat = ({ label, value, tone = "text-neutral-900", testId }) => (
   </div>
 );
 
-function WorkshopDialog({ open, initial, cities, onClose, onSaved }) {
+function WorkshopDialog({ open, initial, cities, lineOptions, onClose, onSaved }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (open) setForm(initial ? { ...EMPTY, ...initial } : EMPTY); }, [open, initial]);
@@ -66,7 +66,7 @@ function WorkshopDialog({ open, initial, cities, onClose, onSaved }) {
           <div className="space-y-2 sm:col-span-2">
             <Label>Líneas que atiende *</Label>
             <div className="flex gap-6">
-              {LINEAS.map((l) => (
+              {lineOptions.map((l) => (
                 <label key={l.value} className="flex items-center gap-2 text-sm cursor-pointer">
                   <Checkbox checked={form.lineas.includes(l.value)} onCheckedChange={(c) => toggleLinea(l.value, !!c)} data-testid={`ws-linea-${l.value}`} /> {l.label}
                 </label>
@@ -92,6 +92,7 @@ export default function TalleresPage() {
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("todos");
   const [cities, setCities] = useState([]);
+  const [lineOptions, setLineOptions] = useState(LINEAS);
   const [edit, setEdit] = useState(null);
   const [toggle, setToggle] = useState(null);
   const [motivo, setMotivo] = useState("");
@@ -103,6 +104,7 @@ export default function TalleresPage() {
   }, [q, estado]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
   useEffect(() => { if (canEdit) api.get("/cities").then((r) => setCities(r.data.cities || [])).catch(() => {}); }, [canEdit]);
+  useEffect(() => { api.get("/tallerpay/catalogo/lineas").then((r) => setLineOptions(r.data.items.filter(l=>l.activo).map(l=>({value:l.codigo,label:l.nombre})))).catch(() => {}); }, []);
 
   const confirmToggle = async () => {
     try {
@@ -171,7 +173,7 @@ export default function TalleresPage() {
                   <div>{w.contacto || "—"}</div>
                   <div className="text-xs text-neutral-500">{[w.telefono, w.correo].filter(Boolean).join(" · ")}</div>
                 </TableCell>
-                <TableCell><LineaBadges lineas={w.lineas} /></TableCell>
+                <TableCell><LineaBadges lineas={w.lineas} catalog={lineOptions} /></TableCell>
                 <TableCell className="text-center">{w.tarifas}</TableCell>
                 <TableCell>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${w.activo ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`} data-testid={`ws-estado-${w.codigo_sap}`}>{w.activo ? "Activo" : "Inactivo"}</span>
@@ -201,7 +203,7 @@ export default function TalleresPage() {
         </Table>
       </div>
 
-      <WorkshopDialog open={!!edit} initial={edit?.id ? edit : null} cities={cities} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
+      <WorkshopDialog open={!!edit} initial={edit?.id ? edit : null} cities={cities} lineOptions={lineOptions} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />
 
       <Dialog open={!!toggle} onOpenChange={(o) => !o && setToggle(null)}>
         <DialogContent className="max-w-md" data-testid="ws-toggle-dialog">
