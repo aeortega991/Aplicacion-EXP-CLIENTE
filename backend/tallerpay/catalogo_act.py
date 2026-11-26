@@ -227,13 +227,13 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
         if not result: raise HTTPException(404, "Código ACT desconocido")
         return result
 
-    @router.get("/tarifarios/matriz")
+    @router.get("/matriz-tarifaria")
     async def matrix(taller_id: str, user: dict = Depends(get_current_user)):
         await guard(user, "tp_tarifarios")
         rows = await db.tp_tariff_matrix.find({"taller_id": taller_id}, {"_id": 0}).to_list(2000)
         return {"items": rows, "levels": LEVELS}
 
-    @router.put("/tarifarios/matriz")
+    @router.put("/matriz-tarifaria")
     async def save_matrix(payload: MatrixIn, user: dict = Depends(get_current_user)):
         await guard(user, "tp_tarifarios", True)
         w = await db.tp_workshops.find_one({"id": payload.taller_id}, {"_id": 0})
@@ -260,13 +260,13 @@ def create_catalogo_act_router(db, get_current_user, effective_perms):
              "$push": {"historial": event}}, upsert=True)
         return await db.tp_tariff_matrix.find_one(query, {"_id": 0})
 
-    @router.get("/tarifarios/legado")
+    @router.get("/matriz-tarifaria/legado")
     async def legacy(taller_id: str, user: dict = Depends(get_current_user)):
         await guard(user, "tp_tarifarios")
         rows = await db.tp_tariffs.find({"taller_id": taller_id}, {"_id": 0}).to_list(1000)
         return {"items": rows, "message": "Los registros antiguos permanecen intactos; deben mapearse explícitamente"}
 
-    @router.post("/tarifarios/migrar")
+    @router.post("/matriz-tarifaria/migrar")
     async def migrate(payload: LegacyMapIn, taller_id: str, user: dict = Depends(get_current_user)):
         """Copia tarifas antiguas explícitamente mapeadas, sin eliminar registros históricos."""
         await guard(user, "tp_tarifarios", True)
