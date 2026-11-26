@@ -144,10 +144,10 @@ export default function LiquidacionesPage(){
 
     <section className="bg-white rounded-lg border p-4 space-y-3">
       <h2 className="font-semibold">2. Kilómetros manuales de tickets foráneos</h2>
-      <p className="text-sm text-neutral-500">Es obligatorio registrar un valor para cada ticket foráneo pagable. Se admite 0 km. Valor: USD 0,20 por kilómetro.</p>
-      {kmRows.length? <div className="overflow-auto max-h-80"><Table><TableHeader><TableRow><TableHead>Ticket</TableHead><TableHead>Técnico</TableHead><TableHead>Ruta</TableHead><TableHead>Clasificación</TableHead><TableHead>Kilómetros</TableHead></TableRow></TableHeader><TableBody>
+      <p className="text-sm text-neutral-500">Es obligatorio registrar los kilómetros de cada ticket foráneo pagable (se admite 0). El sistema utiliza la tarifa USD/km configurada en Tarifarios para este técnico; no existe un valor estándar.</p>
+      {kmRows.length? <div className="overflow-auto max-h-80"><Table><TableHeader><TableRow><TableHead>Ticket</TableHead><TableHead>Técnico</TableHead><TableHead>Ruta</TableHead><TableHead>Clasificación</TableHead><TableHead>USD/km del técnico</TableHead><TableHead>Kilómetros</TableHead></TableRow></TableHeader><TableBody>
         {kmRows.map(x=><TableRow key={x.ticket_id}>
-          <TableCell>{x.ticket_id}</TableCell><TableCell>{x.tecnico}</TableCell><TableCell>{x.ruta}</TableCell><TableCell>{x.clasificacion}</TableCell>
+          <TableCell>{x.ticket_id}</TableCell><TableCell>{x.tecnico}</TableCell><TableCell>{x.ruta}</TableCell><TableCell>{x.clasificacion}</TableCell><TableCell>{x.tarifa_km===null?"Sin tarifa":formatMoney(x.tarifa_km)}</TableCell>
           <TableCell><Input type="number" step=".01" min="0" disabled={!editableKm} className="w-32" placeholder="0.00" value={kms[x.ticket_id]??""}
             onChange={e=>setKms(p=>({...p,[x.ticket_id]:e.target.value}))}/></TableCell>
         </TableRow>)}</TableBody></Table></div>:
