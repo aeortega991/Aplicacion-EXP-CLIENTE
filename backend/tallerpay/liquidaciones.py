@@ -61,6 +61,7 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
         "tecnico_codigo": ticket.get("tecnico_codigo", ""), "tecnico": ticket.get("tecnico", ""),
         "fecha_solucion": ticket.get("fecha_solucion"),
         "producto_codigo": ticket.get("producto_codigo", ""), "producto": ticket.get("producto_descripcion", ""),
+        "serie": clean(ticket.get("serie")),
         "codigo_act": ticket.get("codigo_act", ""), "categoria_resolucion": ticket.get("resolucion", ""),
         "cadena": ticket.get("cadena", ""),
         "ruta": ticket.get("ruta", ""), "es_foraneo": bool(ticket.get("es_foraneo")),
@@ -421,8 +422,16 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         wb = Workbook()
         wb.remove(wb.active)
         cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
-                "producto","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
+                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
                 "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura"]
+        from collections import Counter
+        # Repeticiones entre las TRES hojas, excluyendo series vacías.
+        normalize_serie = lambda v: str(v or "").strip().upper()
+        counts = Counter(normalize_serie(t.get("serie")) for t in doc["tickets"]
+                         if normalize_serie(t.get("serie")))
+        repeated = {value for value, count in counts.items() if count > 1}
+        serial_col = cols.index("serie") + 1
+        red_fill = PatternFill(fill_type="solid", fgColor="FF9C9C")
         for group, title in [("CS_Exp", "CS_Exp"), ("CS_Com", "CS_Com"), ("CS_NoPago", "CS_NoPago")]:
             ws = wb.create_sheet(title)
             ws.append(cols)
@@ -432,6 +441,8 @@ def create_liquidaciones_router(db, current_user, effective_perms):
             for line in doc["tickets"]:
                 if line["clasificacion"] == group:
                     ws.append([line.get(c) for c in cols])
+                    if normalize_serie(line.get("serie")) in repeated:
+                        ws.cell(ws.max_row, serial_col).fill = red_fill
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
         output = BytesIO()
