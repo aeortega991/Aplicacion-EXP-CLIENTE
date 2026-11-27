@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import api, { formatApiError } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,10 +10,15 @@ import { FileSpreadsheet, RefreshCw, Search, X } from "lucide-react";
 const fmtMoney = v => "USD " + Number(v || 0).toLocaleString("es-EC", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const fmtDate = v => v ? String(v).replace("T", " ").slice(0, 16) : "—";
 const groups = ["CS_Exp", "CS_Com", "CS_NoPago", "PENDIENTE"];
+const approvalText = s => s === "APROBADO" ? "Aprobado" : "En espera";
 
 export default function HistorialPagosPage() {
+  const {user, can} = useAuth();
+  const canApprove = ["admin", "coordinador"].includes(user?.role) && can("tp_historial", "edit");
   const [periodo, setPeriodo] = useState("");
   const [estado, setEstado] = useState("");
+  const [aprobacion, setAprobacion] = useState("");
+  const [savingApproval, setSavingApproval] = useState(false);
   const [tecnico, setTecnico] = useState("");
   const [search, setSearch] = useState("");
   const [pagina, setPagina] = useState(1);
@@ -24,12 +30,12 @@ export default function HistorialPagosPage() {
     setBusy(true);
     try {
       const result = await api.get("/tallerpay/historial/liquidaciones", {
-        params: {periodo, estado, tecnico: search, pagina, limite: 25}
+        params: {periodo, estado, aprobacion, tecnico: search, pagina, limite: 25}
       });
       setData(result.data);
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
-  }, [periodo, estado, search, pagina]);
+  }, [periodo, estado, aprobacion, search, pagina]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -38,6 +44,19 @@ export default function HistorialPagosPage() {
       const r = await api.get("/tallerpay/historial/liquidaciones/" + encodeURIComponent(id));
       setDetail(r.data);
     } catch (e) { toast.error(formatApiError(e)); }
+  };
+
+  const updateApproval = async value => {
+    if (!detail || !canApprove) return;
+    setSavingApproval(true);
+    try {
+      const response = await api.put("/tallerpay/historial/liquidaciones/" + encodeURIComponent(detail.id) + "/aprobacion",
+        {estado_aprobacion: value});
+      setDetail(response.data);
+      await load();
+      toast.success("Estado de aprobación actualizado");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSavingApproval(false); }
   };
 
   const excel = async doc => {
@@ -57,10 +76,10 @@ export default function HistorialPagosPage() {
     <div>
       <p className="text-xs tracking-widest uppercase text-neutral-500">Pago a talleres</p>
       <h1 className="text-3xl font-bold">Historial de pagos</h1>
-      <p className="text-sm text-neutral-500 mt-2">Consulta histórica de liquidaciones por técnico, período y estado. No se modifican los importes desde esta pantalla.</p>
+      <p className="text-sm text-neutral-500 mt-2">Consulta histórica de liquidaciones por técnico, período y estado de aprobación. No se modifican los importes desde esta pantalla.</p>
     </div>
     <p className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-md p-3">
-      Una liquidación <strong>CERRADA</strong> no confirma que se haya realizado el pago. El registro de pagos efectivos todavía no está implementado.
+      El estado <strong>Aprobado</strong> indica aprobación de la liquidación, no confirmación de transferencia o pago realizado. No se registra fecha de pago.
     </p>
     <section className="bg-white border rounded-lg p-4 space-y-3">
       <div className="flex gap-3 flex-wrap items-end">
@@ -68,6 +87,12 @@ export default function HistorialPagosPage() {
         <label className="text-sm space-y-1">Estado
           <select className="block rounded-md border px-3 py-2 h-10 bg-white" value={estado} onChange={e => {setEstado(e.target.value);setPagina(1);setDetail(null);}}>
             <option value="">Todos</option><option value="BORRADOR">Borrador</option><option value="CERRADO">Cerrado</option>
+          </select>
+        </label>
+        <label className="text-sm space-y-1">Aprobación
+          <select className="block rounded-md border px-3 py-2 h-10 bg-white" value={aprobacion}
+            onChange={e => {setAprobacion(e.target.value);setPagina(1);setDetail(null);}}>
+            <option value="">Todas</option><option value="EN_ESPERA">En espera</option><option value="APROBADO">Aprobado</option>
           </select>
         </label>
         <form className="flex items-end gap-2" onSubmit={e => {e.preventDefault();setSearch(tecnico.trim());setPagina(1);setDetail(null);}}>
@@ -85,16 +110,16 @@ export default function HistorialPagosPage() {
       <p className="text-xs text-neutral-500">Los importes resumidos corresponden a la página visible, no al total histórico filtrado.</p>
       <div className="overflow-x-auto">
         <Table><TableHeader><TableRow>
-          {["Período","Técnico","Estado","Tickets","Total liquidado","Fecha de creación","Fecha de cierre","Detalle"].map(x => <TableHead key={x}>{x}</TableHead>)}
+          {["Período","Técnico","Liquidación","Aprobación","Tickets","Total liquidado","Fecha de creación","Fecha de cierre","Detalle"].map(x => <TableHead key={x}>{x}</TableHead>)}
         </TableRow></TableHeader><TableBody>
           {data.items.map(x => <TableRow key={x.id}>
             <TableCell>{x.periodo}</TableCell>
             <TableCell><div className="font-medium">{x.tecnico_nombre || x.tecnico_codigo}</div><div className="text-xs text-neutral-500">{x.tecnico_codigo}</div></TableCell>
-            <TableCell>{x.estado}</TableCell><TableCell>{x.tickets}</TableCell><TableCell>{fmtMoney(x.importe)}</TableCell>
+            <TableCell>{x.estado}</TableCell><TableCell>{approvalText(x.estado_aprobacion)}</TableCell><TableCell>{x.tickets}</TableCell><TableCell>{fmtMoney(x.importe)}</TableCell>
             <TableCell>{fmtDate(x.created_at)}</TableCell><TableCell>{fmtDate(x.closed_at)}</TableCell>
             <TableCell><Button size="sm" variant="outline" onClick={() => open(x.id)}>Ver detalle</Button></TableCell>
           </TableRow>)}
-          {!data.items.length && <TableRow><TableCell colSpan={8} className="text-center py-8 text-neutral-500">{busy ? "Cargando..." : "No hay liquidaciones para los filtros seleccionados"}</TableCell></TableRow>}
+          {!data.items.length && <TableRow><TableCell colSpan={9} className="text-center py-8 text-neutral-500">{busy ? "Cargando..." : "No hay liquidaciones para los filtros seleccionados"}</TableCell></TableRow>}
         </TableBody></Table>
       </div>
       <div className="flex items-center gap-3 justify-end text-sm">
@@ -106,11 +131,23 @@ export default function HistorialPagosPage() {
     {detail && <section className="bg-white border rounded-lg p-4 space-y-4" aria-label="Detalle de liquidación">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><h2 className="text-xl font-semibold">Detalle de liquidación</h2>
-          <p className="text-xs text-neutral-500">ID {detail.id} · Versión {detail.version} · {detail.estado}</p></div>
+          <p className="text-xs text-neutral-500">ID {detail.id} · Versión {detail.version} · {detail.estado} · {approvalText(detail.estado_aprobacion)}</p></div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => excel(detail)}><FileSpreadsheet size={16} className="mr-1"/>Descargar Excel</Button>
           <Button size="icon" variant="outline" aria-label="Cerrar detalle" onClick={() => setDetail(null)}><X size={16}/></Button>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
+        <span className="text-sm">Estado de aprobación: <strong>{approvalText(detail.estado_aprobacion)}</strong></span>
+        {canApprove && <div className="flex gap-2">
+          <Button size="sm" variant={detail.estado_aprobacion === "APROBADO" ? "outline" : "default"}
+            disabled={savingApproval || detail.estado !== "CERRADO" || detail.estado_aprobacion === "APROBADO"}
+            onClick={() => updateApproval("APROBADO")}>Aprobar</Button>
+          <Button size="sm" variant="outline"
+            disabled={savingApproval || detail.estado_aprobacion !== "APROBADO"}
+            onClick={() => updateApproval("EN_ESPERA")}>Poner en espera</Button>
+        </div>}
+        {detail.estado !== "CERRADO" && <span className="text-xs text-neutral-500">Para aprobar, primero debe cerrarse la liquidación.</span>}
       </div>
       <p className="text-sm">Técnico: <strong>{detail.tecnico_nombre || detail.tecnico_codigo}</strong> · Código: {detail.tecnico_codigo} · Período: {detail.periodo} · Total: <strong>{fmtMoney(detail.importe)}</strong></p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{groups.map(k => <div className="border rounded-md p-3" key={k}>
