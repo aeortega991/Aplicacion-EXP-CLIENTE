@@ -35,7 +35,7 @@ function PromoDialog({ item, onClose, onSaved }) {
   return <Dialog open={!!item} onOpenChange={open => !open && onClose()}>
     <DialogContent className="max-w-2xl max-h-[88vh] overflow-auto">
       <DialogHeader><DialogTitle>{item?.id ? "Editar promoción" : "Nueva promoción comercial"}</DialogTitle>
-        <DialogDescription>La coincidencia se evalúa con la fecha de solución del ticket. Una promoción vigente sustituye el precio normal y se registra en la hoja CS_Com.</DialogDescription>
+        <DialogDescription>La coincidencia es parcial: escribe solo una parte del texto que aparece en SAP (sin importar mayúsculas ni tildes). El símbolo * acepta cualquier valor. Todas las condiciones indicadas y la fecha de solución deben coincidir. La promoción se registra en CS_Com.</DialogDescription>
       </DialogHeader>
       <form className="grid grid-cols-1 sm:grid-cols-2 gap-3" onSubmit={submit}>
         {Object.keys(EMPTY).map(k => <div key={k} className={k==="observaciones"?"sm:col-span-2":"space-y-1"}>
@@ -102,7 +102,7 @@ export default function PromocionesPage() {
         <Button onClick={() => setEdit({})}><Plus className="w-4 h-4 mr-1"/>Nueva promoción</Button>
       </div>}
     </div>
-    <p className="text-sm rounded-md border bg-white p-3">Las reglas CS_NoPago prevalecen sobre las promociones; una coincidencia comercial no autoriza pagar tickets no solucionados. El importe de la promoción prevalece sobre el tarifario normal del taller.</p>
+    <p className="text-sm rounded-md border bg-white p-3">Las reglas CS_NoPago prevalecen sobre las promociones; una coincidencia comercial no autoriza pagar tickets no solucionados. El importe de la promoción prevalece sobre el tarifario normal del técnico.</p>
     {result&&<div className="rounded-md border p-3 text-sm" role="status">
       {result.confirmed?"Importación completa":"Importación cancelada"} · {result.inserted||0} registros nuevos
       {result.errors?.length>0&&<ul className="mt-2 text-red-700 list-disc pl-5">{result.errors.map((x,i)=><li key={i}>{x}</li>)}</ul>}
