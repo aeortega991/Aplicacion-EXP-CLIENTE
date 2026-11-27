@@ -92,7 +92,7 @@ export default function ImportacionSAPPage() {
           {stat("Por otro ticket",preview.por_referencia_ticket||0)}
         </div>
         <p className="text-sm">Hoja: <strong>{preview.hoja}</strong> · Períodos: {Object.entries(preview.periodos||{}).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p>
-        <p className="text-sm">Técnicos: {(preview.tecnicos||[]).length} · Asignación a talleres: pendiente de revisión en el módulo de liquidación.</p>
+        <p className="text-sm">Técnicos detectados: {(preview.tecnicos||[]).length}. Las liquidaciones se generan individualmente por código de técnico y sin vincularlos a talleres.</p>
         {preview.ya_importado&&<p className="text-amber-700 text-sm"><AlertTriangle className="inline w-4 h-4"/> Este archivo ya fue importado. No se duplicará.</p>}
         {(preview.total_advertencias||0)>0&&<div className="border border-amber-200 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
           <h3 className="font-semibold">Advertencias no bloqueantes ({preview.total_advertencias})</h3>
