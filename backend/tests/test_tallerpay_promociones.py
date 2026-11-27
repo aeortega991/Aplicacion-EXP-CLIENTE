@@ -27,11 +27,28 @@ class PromotionsRulesTests(unittest.TestCase):
             "producto": "AIRE ACONDICIONADO",
         }
 
-    def test_match_exact_and_case_insensitive(self):
-        self.assertTrue(match_value("kywi", "KYWI"))
+    def test_match_partial_and_case_insensitive(self):
+        self.assertTrue(match_value("kywi", "COMERCIAL KYWI S.A."))
+        self.assertTrue(match_value("aire acondicionado", "INSTALACION DE AIRE ACONDICIONADO SPLIT"))
+        self.assertTrue(match_value("instalacion", "INSTALACIÓN NIVEL 1"))
+        self.assertTrue(match_value("ASI-365", "MODELO ASI-365A INVERTER"))
+        self.assertFalse(match_value("KYWI", "LA GANGA"))
         self.assertTrue(match_value("*", ""))
         self.assertFalse(match_value("ASI-365A", "ASI-125A"))
         self.assertTrue(promotion_match(self.base, self.ticket))
+        self.assertTrue(promotion_match(self.base, {**self.ticket,
+            "cadena": "COMERCIAL KYWI S.A.",
+            "modelo": "MODELO ASI-365A INVERTER",
+            "producto": "INSTALACION AIRE ACONDICIONADO SPLIT"}))
+
+    def test_partial_scope_and_wildcard(self):
+        promo = normalize_promo({**self.base, "cadena": "KYWI", "modelo": "*",
+            "producto": "ACONDICIONADO", "categoria_resolucion": "INSTALACION"})
+        promo["id"] = "PROMO-PARCIAL"
+        self.assertTrue(promotion_match(promo, {**self.ticket,
+            "cadena": "COMERCIAL KYWI S.A.", "modelo": "CUALQUIER MODELO",
+            "producto": "AIRE ACONDICIONADO SPLIT"}))
+        self.assertFalse(promotion_match(promo, {**self.ticket, "cadena": "LA GANGA"}))
 
     def test_dates_and_inactive(self):
         self.assertFalse(promotion_match(self.base, {**self.ticket, "fecha_solucion": "2027-01-01"}))
