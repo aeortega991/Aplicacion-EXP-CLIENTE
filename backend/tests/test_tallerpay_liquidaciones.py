@@ -45,6 +45,33 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(row["total"], "14.00")
         self.assertEqual(row["errores"], [])
 
+    def test_installation_level_3_uses_level_1_special_tariff(self):
+        item = self.calculate(promos=[], ticket={
+            **self.ticket, "resolucion": "INSTALACION NIVEL 3"})
+        self.assertEqual(item["categoria_resolucion"], "INSTALACION NIVEL 1")
+        self.assertEqual(item["categoria_resolucion_original"], "INSTALACION NIVEL 3")
+        self.assertEqual(item["precio_origen"], "ESPECIAL")
+        self.assertEqual(item["mano_obra"], "13.00")
+
+    def test_installation_sap_category_level_x_is_normalized(self):
+        ticket = {**self.ticket, "resolucion": "INSTALACION AC",
+                  "categoria_resolucion": "Instalación Nivel X"}
+        item = self.calculate(promos=[], ticket=ticket)
+        self.assertEqual(item["categoria_resolucion"], "INSTALACION NIVEL 1")
+        self.assertEqual(item["mano_obra"], "13.00")
+
+    def test_installation_level_two_matches_level_one_promotion(self):
+        item = self.calculate(ticket={**self.ticket, "resolucion": "INSTALACION NIVEL 2"})
+        self.assertEqual(item["clasificacion"], "CS_Com")
+        self.assertEqual(item["mano_obra"], "10.00")
+        self.assertEqual(item["precio_origen"], "PROMOCIONAL")
+
+    def test_installation_level_4_with_unrecognized_act_uses_special_tariff(self):
+        item = self.calculate(promos=[], ticket={**self.ticket, "codigo_act": "NO_EXISTE",
+            "resolucion": "INSTALACION NIVEL 4"})
+        self.assertEqual(item["errores"], [])
+        self.assertEqual(item["mano_obra"], "13.00")
+
     def test_non_promo_special_normal(self):
         row = self.calculate(promos=[])
         self.assertEqual(row["clasificacion"], "CS_Exp")
