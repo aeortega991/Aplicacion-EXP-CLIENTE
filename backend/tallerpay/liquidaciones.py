@@ -355,7 +355,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
                "tecnico_nombre": " ".join(filter(None, [technician.get("nombre"), technician.get("apellido")])),
                "periodo": payload.periodo,
                "tickets": lines, "totales": summarize(lines),
-               "estado": "BORRADOR", "version": 1, "created_at": now, "updated_at": now,
+               "estado": "BORRADOR", "estado_aprobacion": "EN_ESPERA", "version": 1, "created_at": now, "updated_at": now,
                "created_by": actor(user),
                "historial": [{"fecha": now, "usuario": actor(user), "accion": "CREADA"}]}
         try:
@@ -405,7 +405,8 @@ def create_liquidaciones_router(db, current_user, effective_perms):
             t["total"] = str((usd(t["mano_obra"])+usd(t["valor_km"])).quantize(Q))
         now = now_iso()
         update_result = await db.tp_settlements.update_one({"id": sid, "version": doc["version"]}, {
-            "$set": {"tickets": lines, "totales": summarize(lines), "updated_at": now},
+            "$set": {"tickets": lines, "totales": summarize(lines), "updated_at": now,
+                     "estado_aprobacion": "EN_ESPERA"},
             "$inc": {"version": 1},
             "$push": {"historial": {"fecha": now, "usuario": actor(user), "accion": "EDITAR_KM",
                                     "motivo": payload.motivo, "anteriores": old_values,
@@ -438,7 +439,8 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         line["total"] = str((usd(value)+usd(line.get("valor_km", "0"))).quantize(Q))
         now = now_iso()
         result = await db.tp_settlements.update_one({"id": sid, "version": doc["version"]},
-            {"$set": {"tickets": doc["tickets"], "totales": summarize(doc["tickets"]), "updated_at": now},
+            {"$set": {"tickets": doc["tickets"], "totales": summarize(doc["tickets"]), "updated_at": now,
+                      "estado_aprobacion": "EN_ESPERA"},
              "$inc": {"version": 1},
              "$push": {"historial": {"fecha": now, "usuario": actor(user), "accion": "AJUSTE_IMPORTE",
                                      "motivo": clean(payload.motivo), "ticket_id": payload.ticket_id,
