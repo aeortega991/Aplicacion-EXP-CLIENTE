@@ -16,6 +16,7 @@ import PromocionesPage from "@/pages/tallerpay/PromocionesPage";
 import ImportacionSAPPage from "@/pages/tallerpay/ImportacionSAPPage";
 import ProductosLineasPage from "@/pages/tallerpay/ProductosLineasPage";
 import LiquidacionesPage from "@/pages/tallerpay/LiquidacionesPage";
+import HistorialPagosPage from "@/pages/tallerpay/HistorialPagosPage";
 import Dashboard from "@/pages/Dashboard";
 import ModulePage from "@/pages/ModulePage";
 import UsersPage from "@/pages/UsersPage";
@@ -178,7 +179,7 @@ function App() {
             <Route path="promociones" element={<RequireAccess resource="tp_promociones"><PromocionesPage /></RequireAccess>} />
             <Route path="importacion" element={<RequireAccess resource="tp_importacion"><ImportacionSAPPage /></RequireAccess>} />
             <Route path="liquidaciones" element={<RequireAccess resource="tp_liquidaciones"><LiquidacionesPage /></RequireAccess>} />
-            <Route path="historial" element={<RequireAccess resource="tp_historial"><TallerPayPage section="historial" /></RequireAccess>} />
+            <Route path="historial" element={<RequireAccess resource="tp_historial"><HistorialPagosPage /></RequireAccess>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
