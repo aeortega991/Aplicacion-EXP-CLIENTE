@@ -11,6 +11,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from .common import clean, now_iso
 from .productos import product_code
@@ -210,6 +211,8 @@ def create_liquidaciones_router(db, current_user, effective_perms):
 
     async def startup():
         await db.tp_settlements.create_index("id", unique=True)
+        # Garantía a nivel de MongoDB ante dos solicitudes de liquidación simultáneas.
+        await db.tp_settlements.create_index("tickets.ticket_id", unique=True, name="uniq_ticket_liquidado")
         await db.tp_settlements.create_index([("tecnico_codigo", 1), ("periodo", 1)])
         await db.tp_technician_tariffs.create_index([("tecnico_codigo", 1), ("linea", 1), ("nivel", 1)], unique=True)
         await db.tp_special_tariffs.create_index(
@@ -322,7 +325,10 @@ def create_liquidaciones_router(db, current_user, effective_perms):
                "estado": "BORRADOR", "version": 1, "created_at": now, "updated_at": now,
                "created_by": actor(user),
                "historial": [{"fecha": now, "usuario": actor(user), "accion": "CREADA"}]}
-        await db.tp_settlements.insert_one(doc)
+        try:
+            await db.tp_settlements.insert_one(doc)
+        except DuplicateKeyError:
+            raise HTTPException(409, "Ya existe una liquidación que incluye uno o más tickets del técnico")
         doc.pop("_id", None)
         return doc
 
@@ -416,11 +422,13 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         if not doc: raise HTTPException(404, "Liquidación no encontrada")
         if doc["estado"] == "CERRADO": raise HTTPException(409, "Ya está cerrada")
         now = now_iso()
-        await db.tp_settlements.update_one({"id": sid, "estado": "BORRADOR"},
+        updated = await db.tp_settlements.update_one({"id": sid, "estado": "BORRADOR", "version": doc["version"]},
             {"$set": {"estado": "CERRADO", "updated_at": now, "closed_at": now, "closed_by": actor(user)},
              "$inc": {"version": 1},
              "$push": {"historial": {"fecha": now, "usuario": actor(user),
                                      "accion": "CERRADA", "motivo": payload.motivo}}})
+        if not updated.modified_count:
+            raise HTTPException(409, "La liquidación cambió; recargue antes de cerrar")
         return await db.tp_settlements.find_one({"id": sid}, {"_id": 0})
 
     @router.get("/liquidaciones/{sid}/excel")
