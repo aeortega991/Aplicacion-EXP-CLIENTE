@@ -433,8 +433,8 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         wb = Workbook()
         wb.remove(wb.active)
         cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
-                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","categoria_resolucion_original","ruta","km","tarifa_km",
-                "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura"]
+                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
+                "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura","categoria_resolucion_original"]
         from collections import Counter
         # Repeticiones entre las TRES hojas, excluyendo series vacías.
         normalize_serie = lambda v: str(v or "").strip().upper()
