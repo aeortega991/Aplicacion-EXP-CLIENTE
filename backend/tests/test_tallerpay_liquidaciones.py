@@ -1,7 +1,7 @@
 """Motor de liquidaciones: precedencia de tarifas y ausencia de vínculo técnico–taller."""
 import unittest
 
-from tallerpay.liquidaciones import create_line, summarize, km_value, DraftIn, SpecialIn
+from tallerpay.liquidaciones import create_line, summarize, km_value, DraftIn, SpecialIn, build_settlement_workbook
 from tallerpay.catalogo_act import MatrixIn
 from tallerpay.productos import product_code
 
@@ -145,6 +145,25 @@ class SettlementTests(unittest.TestCase):
         self.assertEqual(tariff.tecnico_codigo, special.tecnico_codigo)
         self.assertFalse(hasattr(tariff, "taller_id"))
         self.assertFalse(hasattr(special, "taller_id"))
+
+    def test_excel_three_sheets_and_red_serials_across_sheets(self):
+        rows = [
+            {"ticket_id":"1000001","clasificacion":"CS_Exp","serie":"SER-REPETIDA",
+             "categoria_resolucion":"INSTALACION NIVEL 1",
+             "categoria_resolucion_original":"INSTALACION NIVEL 3"},
+            {"ticket_id":"1000002","clasificacion":"CS_Com","serie":" ser-repetida "},
+            {"ticket_id":"1000003","clasificacion":"CS_NoPago","serie":"SER-UNICA"},
+            {"ticket_id":"1000004","clasificacion":"CS_NoPago","serie":""},
+        ]
+        wb = build_settlement_workbook(rows)
+        self.assertEqual(wb.sheetnames, ["CS_Exp", "CS_Com", "CS_NoPago"])
+        serial_col = [c.value for c in wb["CS_Exp"][1]].index("serie") + 1
+        for name in ("CS_Exp", "CS_Com"):
+            c = wb[name].cell(2, serial_col)
+            self.assertEqual(c.fill.fgColor.rgb[-6:], "FF9C9C")
+        for idx in (2,3):
+            self.assertNotEqual(wb["CS_NoPago"].cell(idx, serial_col).fill.fgColor.rgb[-6:], "FF9C9C")
+        self.assertEqual(wb["CS_Exp"].cell(2, wb["CS_Exp"].max_column).value, "INSTALACION NIVEL 3")
 
     def test_product_codes(self):
         self.assertEqual(product_code(456789.0), "456789")
