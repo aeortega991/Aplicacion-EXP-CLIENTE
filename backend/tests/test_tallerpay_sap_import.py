@@ -1,9 +1,11 @@
 """Pruebas de equivalencia entre SAP XML SpreadsheetML y XLSX convertido."""
 import io
+import asyncio
 import unittest
 from datetime import datetime
 from openpyxl import Workbook
-from tallerpay.sap_import import parse_sap_xlsx, parse_sap_file, parse_sap_xml, preview_summary, SS_NS
+from tallerpay.sap_import import parse_sap_xlsx, parse_sap_file, parse_sap_xml, preview_summary, SS_NS, create_sap_router
+from fastapi import UploadFile, HTTPException
 
 
 def make_rows():
@@ -99,6 +101,28 @@ class SAPXLSXTests(unittest.TestCase):
         summary = preview_summary(result)
         self.assertEqual(summary["total_advertencias"], 1)
         self.assertEqual(summary["total_validos"], 1)
+
+    def test_confirmation_calls_same_xml_xlsx_reader_as_preview(self):
+        # Regresión: el POST de confirmación llamaba antes a read_xml,
+        # función inexistente tras añadir soporte XLSX.
+        async def fake_current_user():
+            return {"role": "admin"}
+        async def fake_perms(user):
+            return {}
+        router, _ = create_sap_router(object(), fake_current_user, fake_perms)
+        preview = next(x.endpoint for x in router.routes if x.path == "/sap/preview")
+        confirm = next(x.endpoint for x in router.routes if x.path == "/sap/import")
+        async def call_bad(endpoint):
+            file = UploadFile(filename="invalido.csv", file=io.BytesIO(b"not excel"))
+            try:
+                await endpoint(file=file, user={"role": "admin"})
+            finally:
+                await file.close()
+        for action in (preview, confirm):
+            with self.subTest(endpoint=action.__name__):
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(call_bad(action))
+                self.assertEqual(ctx.exception.status_code, 400)
 
     def test_reject_unsupported_extension(self):
         with self.assertRaises(ValueError):
