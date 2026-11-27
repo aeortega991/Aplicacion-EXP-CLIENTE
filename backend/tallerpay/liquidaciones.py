@@ -106,13 +106,15 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
         result["errores"].append("Promociones ambiguas")
     if not prod:
         result["errores"].append("Producto SAP sin línea configurada")
-    if not act_data:
-        result["errores"].append("Código ACT no registrado")
-    elif not result["nivel"]:
-        result["errores"].append("Código ACT sin nivel tarifable")
-
     special_key = (result["linea"], normalizar_instalacion(effective_resolution))
     special = specials.get(special_key)
+    # Las instalaciones con tarifa específica no necesitan un nivel ACT
+    # para determinar su importe; las demás reparaciones sí.
+    if not special:
+        if not act_data:
+            result["errores"].append("Código ACT no registrado")
+        elif not result["nivel"]:
+            result["errores"].append("Código ACT sin nivel tarifable")
     standard = tariffs.get((result["linea"], result["nivel"]))
     if special:
         base = special["valor"]
