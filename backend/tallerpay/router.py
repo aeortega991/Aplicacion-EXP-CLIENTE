@@ -19,6 +19,7 @@ from .promociones import create_promotions_router
 from .sap_import import create_sap_router
 from .productos import create_productos_router
 from .liquidaciones import create_liquidaciones_router
+from .historial import create_historial_router
 from .common import (EMAIL_RE, LINEAS, build_template, clean, norm_linea, norm_sap, now_iso, num_text, read_rows,
                      to_date, to_number, upper)
 
@@ -104,7 +105,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
         if resource is None:
             raise HTTPException(status_code=404, detail="Sección no encontrada")
         await require_access(resource, user)
-        ready = section in ("talleres", "tarifarios", "productos", "codificador", "promociones", "importacion", "liquidaciones")
+        ready = section in ("talleres", "tarifarios", "productos", "codificador", "promociones", "importacion", "liquidaciones", "historial")
         return {"section": section, "ready": ready,
                 "message": "Disponible" if ready else "Funcionalidad pendiente de implementación"}
 
@@ -134,6 +135,7 @@ def create_tallerpay_router(get_current_user, effective_perms, db=None, put_obje
     router.include_router(_productos_router)
     _liquidaciones_router, _liquidaciones_startup = create_liquidaciones_router(db, get_current_user, effective_perms)
     router.include_router(_liquidaciones_router)
+    router.include_router(create_historial_router(db, get_current_user, effective_perms))
     router.startup = startup
 
     # ------------------------------------------------------------------ helpers
