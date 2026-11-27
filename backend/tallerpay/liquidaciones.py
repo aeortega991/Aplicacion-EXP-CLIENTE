@@ -191,6 +191,39 @@ class SpecialIn(BaseModel):
     valor: str
 
 
+def build_settlement_workbook(tickets):
+    """Excel real de tres hojas; marca series repetidas entre grupos."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    wb.remove(wb.active)
+    cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
+            "producto","serie","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
+            "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura","categoria_resolucion_original"]
+    from collections import Counter
+    # Repeticiones entre las TRES hojas, excluyendo series vacías.
+    normalize_serie = lambda v: str(v or "").strip().upper()
+    counts = Counter(normalize_serie(t.get("serie")) for t in tickets
+                     if normalize_serie(t.get("serie")))
+    repeated = {value for value, count in counts.items() if count > 1}
+    serial_col = cols.index("serie") + 1
+    red_fill = PatternFill(fill_type="solid", fgColor="FF9C9C")
+    for group, title in [("CS_Exp", "CS_Exp"), ("CS_Com", "CS_Com"), ("CS_NoPago", "CS_NoPago")]:
+        ws = wb.create_sheet(title)
+        ws.append(cols)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="17365D")
+        for line in tickets:
+            if line["clasificacion"] == group:
+                ws.append([line.get(c) for c in cols])
+                if normalize_serie(line.get("serie")) in repeated:
+                    ws.cell(ws.max_row, serial_col).fill = red_fill
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+    return wb
+
+
 def create_liquidaciones_router(db, current_user, effective_perms):
     router = APIRouter(tags=["TallerPay: Liquidaciones"])
 
@@ -436,34 +469,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         await guard(user)
         doc = await db.tp_settlements.find_one({"id": sid}, {"_id": 0})
         if not doc: raise HTTPException(404, "Liquidación no encontrada")
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
-        wb = Workbook()
-        wb.remove(wb.active)
-        cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
-                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
-                "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura","categoria_resolucion_original"]
-        from collections import Counter
-        # Repeticiones entre las TRES hojas, excluyendo series vacías.
-        normalize_serie = lambda v: str(v or "").strip().upper()
-        counts = Counter(normalize_serie(t.get("serie")) for t in doc["tickets"]
-                         if normalize_serie(t.get("serie")))
-        repeated = {value for value, count in counts.items() if count > 1}
-        serial_col = cols.index("serie") + 1
-        red_fill = PatternFill(fill_type="solid", fgColor="FF9C9C")
-        for group, title in [("CS_Exp", "CS_Exp"), ("CS_Com", "CS_Com"), ("CS_NoPago", "CS_NoPago")]:
-            ws = wb.create_sheet(title)
-            ws.append(cols)
-            for cell in ws[1]:
-                cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill("solid", fgColor="17365D")
-            for line in doc["tickets"]:
-                if line["clasificacion"] == group:
-                    ws.append([line.get(c) for c in cols])
-                    if normalize_serie(line.get("serie")) in repeated:
-                        ws.cell(ws.max_row, serial_col).fill = red_fill
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
+        wb = build_settlement_workbook(doc["tickets"])
         output = BytesIO()
         wb.save(output)
         output.seek(0)
