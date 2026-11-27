@@ -28,6 +28,18 @@ def norm(v):
     return " ".join(clean(v).upper().split())
 
 
+def normalizar_instalacion(value):
+    """Trata cualquier INSTALACION NIVEL X como INSTALACION NIVEL 1.
+
+    Acepta tildes, espacios variables y niveles numéricos/alfabéticos.
+    No altera otras categorías (p. ej. REPARACION NIVEL 2).
+    """
+    value = norm(value)
+    if re.fullmatch(r"INSTALACI[OÓ]N\\s+NIVEL\\s+[A-Z0-9]+", value):
+        return "INSTALACION NIVEL 1"
+    return value
+
+
 def match_value(rule, value):
     rule = norm(rule)
     return rule in ("", ANY) or (bool(norm(value)) and rule == norm(value))
@@ -42,7 +54,7 @@ def normalize_promo(data):
         raise ValueError("Cadena comercial obligatoria; use * para todas")
     scope = {}
     for field in ("cadena", "modelo", "categoria_resolucion", "linea", "producto"):
-        scope[field] = cadena if field == "cadena" else norm(data.get(field)) or ANY
+        scope[field] = cadena if field == "cadena" else (normalizar_instalacion(data.get(field)) if field == "categoria_resolucion" else norm(data.get(field))) or ANY
     try:
         start = to_date(data.get("vigente_desde"))
         end = to_date(data.get("vigente_hasta"))
@@ -79,8 +91,9 @@ def promotion_match(promo, ticket):
         return False
     if not (promo["vigente_desde"] <= d <= promo["vigente_hasta"]):
         return False
-    return all(match_value(promo.get(key), ticket.get(key)) for key in
-               ("cadena", "modelo", "categoria_resolucion", "linea", "producto"))
+    return all(match_value(normalizar_instalacion(promo.get(key)), normalizar_instalacion(ticket.get(key)))
+               if key == "categoria_resolucion" else match_value(promo.get(key), ticket.get(key))
+               for key in ("cadena", "modelo", "categoria_resolucion", "linea", "producto"))
 
 
 def classify(ticket, promotions):
