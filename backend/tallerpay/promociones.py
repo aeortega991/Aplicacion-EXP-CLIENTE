@@ -4,6 +4,7 @@ Se registran condiciones comerciales configurables; NO alteran importes del
 tarifario. La clasificación de tickets respeta primero CS_NoPago.
 """
 import re
+import unicodedata
 import uuid
 from datetime import date
 from io import BytesIO
@@ -41,8 +42,13 @@ def normalizar_instalacion(value):
 
 
 def match_value(rule, value):
-    rule = norm(rule)
-    return rule in ("", ANY) or (bool(norm(value)) and rule == norm(value))
+    """Coincidencia parcial: el texto de la regla debe aparecer en el valor SAP."""
+    def normalized(v):
+        text = unicodedata.normalize("NFD", norm(v))
+        return "".join(c for c in text if unicodedata.category(c) != "Mn")
+    needle = normalized(rule)
+    haystack = normalized(value)
+    return needle in ("", ANY) or (bool(haystack) and needle in haystack)
 
 
 def normalize_promo(data):
