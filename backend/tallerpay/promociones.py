@@ -35,7 +35,7 @@ def normalizar_instalacion(value):
     No altera otras categorías (p. ej. REPARACION NIVEL 2).
     """
     value = norm(value)
-    if re.fullmatch(r"INSTALACI[OÓ]N\\s+NIVEL\\s+[A-Z0-9]+", value):
+    if re.fullmatch(r"INSTALACI[OÓ]N\s+NIVEL\s+[A-Z0-9]+", value):
         return "INSTALACION NIVEL 1"
     return value
 
