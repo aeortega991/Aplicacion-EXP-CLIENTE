@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from .common import clean, now_iso
 from .productos import product_code
-from .promociones import classify
+from .promociones import classify, normalizar_instalacion
 from .catalogo_act import LEVELS
 
 Q = Decimal("0.01")
@@ -56,13 +56,22 @@ def summarize(items):
 def create_line(ticket, technician, products, act, tariffs, specials, promos, kms, km_rate=None):
     """Construye una fotografía monetaria por ticket."""
     ticket_id = ticket["ticket_id"]
+    # Priorizar la categoría específica de instalación, que puede estar en
+    # la resolución SAP o en la categoría de resolución del mismo registro.
+    original_resolution = clean(ticket.get("resolucion"))
+    sap_category = clean(ticket.get("categoria_resolucion"))
+    installation_source = next((v for v in (original_resolution, sap_category)
+        if normalizar_instalacion(v) == "INSTALACION NIVEL 1"), None)
+    effective_resolution = (normalizar_instalacion(installation_source)
+                            if installation_source else original_resolution)
     result = {
         "ticket_id": ticket_id, "asunto": ticket.get("asunto", ""),
         "tecnico_codigo": ticket.get("tecnico_codigo", ""), "tecnico": ticket.get("tecnico", ""),
         "fecha_solucion": ticket.get("fecha_solucion"),
         "producto_codigo": ticket.get("producto_codigo", ""), "producto": ticket.get("producto_descripcion", ""),
         "serie": clean(ticket.get("serie")),
-        "codigo_act": ticket.get("codigo_act", ""), "categoria_resolucion": ticket.get("resolucion", ""),
+        "codigo_act": ticket.get("codigo_act", ""), "categoria_resolucion": effective_resolution,
+        "categoria_resolucion_original": installation_source or original_resolution,
         "cadena": ticket.get("cadena", ""),
         "ruta": ticket.get("ruta", ""), "es_foraneo": bool(ticket.get("es_foraneo")),
         "tipo_cobertura": ticket.get("tipo_cobertura", ""),
@@ -77,7 +86,7 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
         "modelo": key,
         "producto": ticket.get("producto_descripcion", ""),
         "linea": result["linea"],
-        "categoria_resolucion": ticket.get("resolucion", ""),
+        "categoria_resolucion": effective_resolution,
     }
     classification = classify(promo_ticket, promos)
     result["clasificacion"] = classification["clasificacion"]
@@ -102,7 +111,7 @@ def create_line(ticket, technician, products, act, tariffs, specials, promos, km
     elif not result["nivel"]:
         result["errores"].append("Código ACT sin nivel tarifable")
 
-    special_key = (result["linea"], clean(ticket.get("resolucion")).upper())
+    special_key = (result["linea"], normalizar_instalacion(effective_resolution))
     special = specials.get(special_key)
     standard = tariffs.get((result["linea"], result["nivel"]))
     if special:
@@ -231,7 +240,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         products = {x["codigo_sap"]: x for x in product_list}
         act_map = {x["codigo"]: x for x in act_list}
         tariff_map = {(x["linea"], x["nivel"]): x for x in tariffs}
-        special_map = {(x["linea"], x["categoria_resolucion"]): x for x in specials}
+        special_map = {(x["linea"], normalizar_instalacion(x["categoria_resolucion"])): x for x in specials}
         lines = [create_line(t, technician, products, act_map, tariff_map, special_map,
                              promotions, payload.kilometros, km_rate) for t in tickets]
         return technician, lines
@@ -422,7 +431,7 @@ def create_liquidaciones_router(db, current_user, effective_perms):
         wb = Workbook()
         wb.remove(wb.active)
         cols = ["ticket_id","tecnico_codigo","tecnico","fecha_solucion","asunto","producto_codigo",
-                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","ruta","km","tarifa_km",
+                "producto","serie","linea","codigo_act","nivel","categoria_resolucion","categoria_resolucion_original","ruta","km","tarifa_km",
                 "mano_obra","valor_km","total","precio_origen","motivo","tipo_cobertura"]
         from collections import Counter
         # Repeticiones entre las TRES hojas, excluyendo series vacías.
