@@ -341,7 +341,7 @@ def create_sap_router(db, get_current_user, effective_perms):
     @router.post("/sap/import")
     async def commit_import(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
         await guard(user, edit=True)
-        data, parsed = await read_xml(file)
+        data, parsed = await read_upload(file)
         if parsed["errores"]:
             raise HTTPException(422, {
                 "message": "La carga contiene filas inválidas. No se guardó ningún ticket",
