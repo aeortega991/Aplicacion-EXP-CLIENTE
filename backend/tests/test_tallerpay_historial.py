@@ -2,7 +2,7 @@
 import unittest
 
 from fastapi import HTTPException, FastAPI
-from tallerpay.historial import build_filter, totals_for, create_historial_router
+from tallerpay.historial import build_filter, totals_for, approval_state, create_historial_router
 
 
 class HistoryTests(unittest.TestCase):
@@ -16,6 +16,18 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(totals_for(doc), {"importe": "130.25", "tickets": 6})
         self.assertEqual(totals_for({}), {"importe": "0", "tickets": 0})
 
+    def test_approval_defaults_and_filters(self):
+        self.assertEqual(approval_state({}), "EN_ESPERA")
+        self.assertEqual(approval_state({"estado_aprobacion": "APROBADO"}), "APROBADO")
+        self.assertEqual(build_filter(aprobacion="APROBADO")["$or"],
+                         [{"estado_aprobacion": "APROBADO"}])
+        waiting = build_filter(aprobacion="EN_ESPERA", tecnico="TEC")
+        self.assertIn("$and", waiting)
+        self.assertEqual(len(waiting["$and"]), 2)
+        self.assertEqual(len(waiting["$and"][0]["$or"]), 3)
+        with self.assertRaises(HTTPException):
+            build_filter(aprobacion="PAGADO")
+
     def test_filters(self):
         self.assertEqual(build_filter(), {})
         self.assertEqual(build_filter(periodo="2026-10", estado="CERRADO"),
@@ -28,7 +40,7 @@ class HistoryTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             build_filter(estado="PAGADO")
 
-    def test_read_only_routes_exist(self):
+    def test_read_routes_and_approval_route_exist(self):
         async def user(): return {"role": "admin"}
         async def perms(u): return {}
         router = create_historial_router(object(), user, perms)
@@ -36,7 +48,8 @@ class HistoryTests(unittest.TestCase):
         self.assertIn(("GET", "/historial/liquidaciones"), routes)
         self.assertIn(("GET", "/historial/liquidaciones/{sid}"), routes)
         self.assertIn(("GET", "/historial/liquidaciones/{sid}/excel"), routes)
-        self.assertFalse(any(method != "GET" for method, _ in routes))
+        self.assertIn(("PUT", "/historial/liquidaciones/{sid}/aprobacion"), routes)
+        self.assertEqual([method for method, _ in routes if method != "GET"], ["PUT"])
         from tallerpay.router import create_tallerpay_router
         app = FastAPI()
         app.include_router(create_tallerpay_router(user, perms, db=object()))
